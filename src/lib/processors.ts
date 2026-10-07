@@ -56,6 +56,58 @@ export async function imageConvert(
   };
 }
 
+/** Crop an image around its center to a selected aspect ratio. */
+export async function imageCropByRatio(file: File, ratio: 'free' | '1:1' | '4:3' | '16:9' = '1:1'): Promise<ProcessorResult> {
+  const img = await loadImage(file);
+  let width = img.naturalWidth, height = img.naturalHeight;
+  const ratios: Record<string, number> = { '1:1': 1, '4:3': 4 / 3, '16:9': 16 / 9 };
+  const desired = ratios[ratio];
+  if (desired) {
+    if (width / height > desired) width = Math.round(height * desired);
+    else height = Math.round(width / desired);
+  }
+  const sx = Math.floor((img.naturalWidth - width) / 2);
+  const sy = Math.floor((img.naturalHeight - height) / 2);
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  canvas.getContext('2d')!.drawImage(img, sx, sy, width, height, 0, 0, width, height);
+  const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+  const blob = await canvasToBlob(canvas, mimeType, 0.92);
+  return { blob, filename: `${file.name.replace(/\.[^.]+$/, '')}_crop.${mimeType === 'image/png' ? 'png' : 'jpg'}`, mimeType, meta: { width, height, outputSize: blob.size } };
+}
+
+/** Re-encode a supported raster image so EXIF metadata is not carried into output. */
+export async function removeImageExif(file: File): Promise<ProcessorResult> {
+  const format = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpeg';
+  return imageConvert(file, format, 0.92);
+}
+
+export async function makeFavicon(file: File): Promise<ProcessorResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = 32; canvas.height = 32;
+  const size = Math.min(img.naturalWidth, img.naturalHeight);
+  const sx = Math.floor((img.naturalWidth - size) / 2), sy = Math.floor((img.naturalHeight - size) / 2);
+  canvas.getContext('2d')!.drawImage(img, sx, sy, size, size, 0, 0, 32, 32);
+  const blob = await canvasToBlob(canvas, 'image/png', 1);
+  return { blob, filename: 'favicon.png', mimeType: 'image/png', meta: { width: 32, height: 32, outputSize: blob.size } };
+}
+
+/** Create a generic 35:45 portrait crop. It does not identify or center a face. */
+export async function makePassportPhoto(file: File): Promise<ProcessorResult> {
+  const img = await loadImage(file);
+  const aspect = 35 / 45;
+  let cropWidth = img.naturalWidth, cropHeight = img.naturalHeight;
+  if (cropWidth / cropHeight > aspect) cropWidth = cropHeight * aspect;
+  else cropHeight = cropWidth / aspect;
+  const canvas = document.createElement('canvas');
+  canvas.width = 413; canvas.height = 531;
+  const sx = Math.floor((img.naturalWidth - cropWidth) / 2), sy = Math.floor((img.naturalHeight - cropHeight) / 2);
+  canvas.getContext('2d')!.drawImage(img, sx, sy, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+  const blob = await canvasToBlob(canvas, 'image/jpeg', 0.94);
+  return { blob, filename: `${file.name.replace(/\.[^.]+$/, '')}_portrait.jpg`, mimeType: 'image/jpeg', meta: { width: 413, height: 531, outputSize: blob.size } };
+}
+
 /** Resize image to target dimensions */
 export async function imageResize(
   file: File,
@@ -419,6 +471,60 @@ export async function rotatePdf(
   };
 }
 
+function parsePageList(value: string, count: number): number[] {
+  const pages = value.split(/[\s,;]+/).filter(Boolean).map(Number);
+  if (!pages.length || pages.some((page) => !Number.isInteger(page) || page < 1 || page > count)) {
+    throw new ProcessorError(`Enter page numbers between 1 and ${count}, separated by commas.`);
+  }
+  return [...new Set(pages)];
+}
+
+export async function removePdfPages(file: File, pageList: string): Promise<ProcessorResult> {
+  const { PDFDocument } = await import('pdf-lib');
+  const pdf = await PDFDocument.load(await file.arrayBuffer());
+  const remove = new Set(parsePageList(pageList, pdf.getPageCount()).map((n) => n - 1));
+  if (remove.size >= pdf.getPageCount()) throw new ProcessorError('At least one page must remain.');
+  [...remove].sort((a, b) => b - a).forEach((index) => pdf.removePage(index));
+  const bytes = await pdf.save();
+  return { blob: new Blob([bytes], { type: 'application/pdf' }), filename: file.name.replace(/\.pdf$/i, '') + '_pages_removed.pdf', mimeType: 'application/pdf', meta: { pages: pdf.getPageCount() } };
+}
+
+export async function extractPdfPages(file: File, pageList: string): Promise<ProcessorResult> {
+  const { PDFDocument } = await import('pdf-lib');
+  const source = await PDFDocument.load(await file.arrayBuffer());
+  const indices = parsePageList(pageList, source.getPageCount()).map((page) => page - 1);
+  const output = await PDFDocument.create();
+  const pages = await output.copyPages(source, indices);
+  pages.forEach((page) => output.addPage(page));
+  const bytes = await output.save();
+  return { blob: new Blob([bytes], { type: 'application/pdf' }), filename: file.name.replace(/\.pdf$/i, '') + '_extracted.pdf', mimeType: 'application/pdf', meta: { pages: pages.length } };
+}
+
+export async function reorderPdfPages(file: File, pageList: string): Promise<ProcessorResult> {
+  const { PDFDocument } = await import('pdf-lib');
+  const source = await PDFDocument.load(await file.arrayBuffer());
+  const order = parsePageList(pageList, source.getPageCount());
+  if (order.length !== source.getPageCount()) throw new ProcessorError(`List every page exactly once (1 through ${source.getPageCount()}).`);
+  const output = await PDFDocument.create();
+  const pages = await output.copyPages(source, order.map((page) => page - 1));
+  pages.forEach((page) => output.addPage(page));
+  const bytes = await output.save();
+  return { blob: new Blob([bytes], { type: 'application/pdf' }), filename: file.name.replace(/\.pdf$/i, '') + '_reordered.pdf', mimeType: 'application/pdf', meta: { pages: pages.length } };
+}
+
+export async function addPdfPageNumbers(file: File, startAt = 1): Promise<ProcessorResult> {
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+  const pdf = await PDFDocument.load(await file.arrayBuffer());
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  pdf.getPages().forEach((page, index) => {
+    const { width } = page.getSize();
+    const label = String(startAt + index);
+    page.drawText(label, { x: width / 2 - font.widthOfTextAtSize(label, 10) / 2, y: 18, size: 10, font, color: rgb(0.35, 0.35, 0.35) });
+  });
+  const bytes = await pdf.save();
+  return { blob: new Blob([bytes], { type: 'application/pdf' }), filename: file.name.replace(/\.pdf$/i, '') + '_numbered.pdf', mimeType: 'application/pdf', meta: { pages: pdf.getPageCount() } };
+}
+
 /** Add a text watermark to every page of a PDF */
 export async function watermarkPdf(
   file: File,
@@ -539,6 +645,18 @@ export async function createZip(
     mimeType: 'application/zip',
     meta: { files: files.length, outputSize: blob.size },
   };
+}
+
+export async function batchRename(files: File[], options: { prefix?: string; suffix?: string; numbered?: boolean } = {}): Promise<ProcessorResult> {
+  const renamed = files.map((file, index) => {
+    const dot = file.name.lastIndexOf('.');
+    const stem = dot > 0 ? file.name.slice(0, dot) : file.name;
+    const ext = dot > 0 ? file.name.slice(dot) : '';
+    const number = options.numbered ? `_${String(index + 1).padStart(2, '0')}` : '';
+    return new File([file], `${options.prefix ?? ''}${stem}${options.suffix ?? ''}${number}${ext}`, { type: file.type, lastModified: file.lastModified });
+  });
+  const result = await createZip(renamed, 'renamed_files.zip');
+  return { ...result, meta: { files: renamed.length, ...result.meta } };
 }
 
 /** Extract all files from a ZIP archive — returns multiple results */

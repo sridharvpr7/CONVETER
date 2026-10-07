@@ -7,6 +7,8 @@ import { ConveterLogo } from '@/components/ui/Logo';
 import { ThemeSwitcher } from '@/components/ui/ThemeSwitcher';
 import { MegaMenu } from './MegaMenu';
 import { useAppStore } from '@/store/app.store';
+import { auth } from '@/lib/firebase';
+import { signOut } from 'firebase/auth';
 
 const NAV_LINKS = [
   { label: 'Home', href: '/' },
@@ -30,10 +32,12 @@ export const Header: React.FC = () => {
     user,
     notificationsOpen,
     setNotificationsOpen,
+    setUser,
   } = useAppStore();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const toolsButtonRef = useRef<HTMLButtonElement>(null);
 
   // Track scroll for header shadow
@@ -197,15 +201,22 @@ export const Header: React.FC = () => {
 
             {/* User menu */}
             {user ? (
-              <button className="flex items-center gap-2 h-9 px-2 rounded-lg transition-all duration-150 hover:bg-hover-cv">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
-                  style={{ backgroundColor: 'var(--accent)' }}
-                >
-                  {user.name[0]}
-                </div>
-                <ChevronDown size={12} style={{ color: 'var(--text-muted)' }} />
-              </button>
+              <div className="relative">
+                <button onClick={() => setProfileMenuOpen((open) => !open)} aria-expanded={profileMenuOpen} className="flex items-center gap-2 h-9 px-2 rounded-lg transition-all duration-150 hover:bg-hover-cv">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0 overflow-hidden" style={{ backgroundColor: 'var(--accent)' }}>
+                    {user.avatar ? <img src={user.avatar} alt="" className="w-full h-full object-cover" /> : user.name[0]}
+                  </div>
+                  <ChevronDown size={12} style={{ color: 'var(--text-muted)' }} />
+                </button>
+                {profileMenuOpen && (
+                  <div className="absolute right-0 top-11 z-[120] w-56 rounded-xl border p-2 shadow-cv-lg" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+                    <p className="px-3 py-2 text-xs text-muted-cv truncate">{user.email}</p>
+                    <Link onClick={() => setProfileMenuOpen(false)} to="/dashboard" className="block rounded-lg px-3 py-2 text-sm text-primary hover:bg-hover-cv">Dashboard</Link>
+                    <Link onClick={() => setProfileMenuOpen(false)} to="/settings" className="block rounded-lg px-3 py-2 text-sm text-primary hover:bg-hover-cv">Account settings</Link>
+                    <button onClick={async () => { if (auth) await signOut(auth); setUser(null); setProfileMenuOpen(false); }} className="w-full text-left rounded-lg px-3 py-2 text-sm text-error-600 hover:bg-hover-cv">Sign out</button>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex items-center gap-1.5">
                 <Link to="/login" className="btn-ghost btn-sm hidden sm:flex">

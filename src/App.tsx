@@ -7,6 +7,8 @@ import {
   ScrollRestoration,
 } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth, toAppUser } from '@/lib/firebase';
 
 // Layout
 import { Header } from '@/components/navigation/Header';
@@ -320,6 +322,16 @@ const AppRoutes: React.FC = () => {
 // Root App
 // ─────────────────────────────────────────────────────────
 const App: React.FC = () => {
+  const setUser = useAppStore((state) => state.setUser);
+
+  useEffect(() => {
+    if (!auth) {
+      setUser(null);
+      return;
+    }
+    return onAuthStateChanged(auth, (user) => setUser(user ? toAppUser(user) : null));
+  }, [setUser]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>

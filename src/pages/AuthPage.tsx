@@ -1,7 +1,17 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Github, CheckCircle2 } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { ConveterLogo } from '@/components/ui/Logo';
+import {
+  confirmPasswordReset,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  updateProfile,
+} from 'firebase/auth';
+import { googleProvider, requireFirebaseAuth } from '@/lib/firebase';
+import { useAppStore } from '@/store/app.store';
 
 interface AuthPageProps {
   mode: 'login' | 'register' | 'forgot' | 'reset';
@@ -12,15 +22,76 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const setUser = useAppStore((state) => state.setUser);
+
+  const readableAuthError = (value: unknown) => {
+    const code = (value as { code?: string })?.code;
+    const messages: Record<string, string> = {
+      'auth/invalid-credential': 'Email or password is incorrect.',
+      'auth/email-already-in-use': 'An account already exists for this email.',
+      'auth/weak-password': 'Choose a stronger password (at least 8 characters).',
+      'auth/invalid-email': 'Enter a valid email address.',
+      'auth/popup-closed-by-user': 'Google sign-in was closed before it finished.',
+      'auth/unauthorized-domain': 'Add this Render domain to Firebase Authentication → Settings → Authorized domains.',
+      'auth/operation-not-allowed': 'Enable this sign-in method in Firebase Authentication → Sign-in method.',
+      'auth/expired-action-code': 'This password reset link has expired. Request a new one.',
+      'auth/invalid-action-code': 'This password reset link is invalid or has already been used.',
+    };
+    return messages[code || ''] || (value instanceof Error ? value.message : 'Sign-in failed. Please try again.');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    setLoading(false);
-    if (mode === 'forgot') setSubmitted(true);
+    try {
+      const auth = requireFirebaseAuth();
+      if (mode === 'reset' && password !== confirmPassword) {
+        throw new Error('The passwords do not match.');
+      }
+      if (mode === 'login') {
+        const credential = await signInWithEmailAndPassword(auth, email, password);
+        setUser({ id: credential.user.uid, name: credential.user.displayName || credential.user.email?.split('@')[0] || 'User', email: credential.user.email || '', avatar: credential.user.photoURL || undefined, plan: 'free' });
+        navigate('/dashboard');
+      } else if (mode === 'register') {
+        const credential = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(credential.user, { displayName: name.trim() });
+        setUser({ id: credential.user.uid, name: name.trim(), email: credential.user.email || email, avatar: credential.user.photoURL || undefined, plan: 'free' });
+        navigate('/dashboard');
+      } else if (mode === 'forgot') {
+        await sendPasswordResetEmail(auth, email);
+        setSubmitted(true);
+      } else {
+        const actionCode = searchParams.get('oobCode');
+        if (!actionCode) throw new Error('Open the password reset link from your email to choose a new password.');
+        await confirmPasswordReset(auth, actionCode, password);
+        setSubmitted(true);
+      }
+    } catch (authError) {
+      setError(readableAuthError(authError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const credential = await signInWithPopup(requireFirebaseAuth(), googleProvider);
+      setUser({ id: credential.user.uid, name: credential.user.displayName || 'User', email: credential.user.email || '', avatar: credential.user.photoURL || undefined, plan: 'free' });
+      navigate('/dashboard');
+    } catch (authError) {
+      setError(readableAuthError(authError));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const titles = {
@@ -125,6 +196,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
                     type="button"
                     className="btn-secondary btn-lg w-full gap-3 mb-4"
                     disabled={loading}
+                    onClick={handleGoogleSignIn}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -241,6 +313,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
                       <input
                         id="confirm-password"
                         type={showPassword ? 'text' : 'password'}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
                         className="input-lg pl-10"
                         placeholder="Confirm new password"
                         required
@@ -268,6 +342,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
                   )}
                 </button>
               </form>
+
+              {error && <p role="alert" className="mt-4 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-600">{error}</p>}
+              {mode === 'reset' && submitted && <p role="status" className="mt-4 text-sm text-green-600">Password updated. <Link to="/login" className="underline">Sign in</Link></p>}
 
               {/* Switch mode */}
               <p className="text-sm text-secondary text-center mt-6">

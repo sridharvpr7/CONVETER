@@ -336,6 +336,7 @@ export const ToolPage: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [overallState, setOverallState] = useState<ProcessingState>('idle');
   const [activeTab, setActiveTab] = useState<'upload' | 'options' | 'result'>('upload');
+  const [textInput, setTextInput] = useState('');
   const [options, setOptions] = useState<Record<string, unknown>>(() => {
     // Initialize from field defaults
     const defaults: Record<string, unknown> = {};
@@ -364,6 +365,8 @@ export const ToolPage: React.FC = () => {
   const meta = CATEGORY_META[tool.category];
   const relatedTools = getRelatedTools(tool);
   const isFav = isFavoriteTool(tool.slug);
+  const isTextTool = Boolean(dispatch?.textPlaceholder);
+  const canRunEmptyText = ['uuid-generator', 'password-generator', 'lorem-ipsum'].includes(tool.slug);
   const completedCount = files.filter((f) => f.state === 'completed').length;
   const failedCount = files.filter((f) => f.state === 'failed').length;
 
@@ -387,25 +390,20 @@ export const ToolPage: React.FC = () => {
     }
   }, []);
 
-  const handleProcess = useCallback(async () => {
-    if (files.length === 0) return;
+  const handleProcess = useCallback(async (inputFiles?: ProcessingFile[]) => {
+    const filesToProcess = inputFiles ?? files;
+    if (filesToProcess.length === 0) return;
     setIsRunning(true);
     setOverallState('processing');
     setActiveTab('result');
 
     if (!dispatch) {
-      // No real processor — simulate
-      for (const pf of files) {
-        setFiles((prev) => prev.map((f) => f.id === pf.id ? { ...f, state: 'processing', progress: 0 } : f));
-        for (let p = 0; p <= 100; p += 25) {
-          await new Promise((r) => setTimeout(r, 150));
-          setFiles((prev) => prev.map((f) => f.id === pf.id ? { ...f, progress: p } : f));
-        }
-        setFiles((prev) => prev.map((f) => f.id === pf.id ? { ...f, state: 'completed', progress: 100 } : f));
-      }
+      const message = 'This tool is listed in the catalog, but this build does not include its processing engine yet.';
+      const failedIds = new Set(filesToProcess.map((f) => f.id));
+      setFiles((prev) => prev.map((f) => failedIds.has(f.id) ? { ...f, state: 'failed', progress: 0, error: message } : f));
     } else if (dispatch.multiFile) {
       // Process all files together
-      const fileList = files.map((pf) => pf.file);
+      const fileList = filesToProcess.map((pf) => pf.file);
       // Show progress on first file
       setFiles((prev) => prev.map((f, i) => i === 0 ? { ...f, state: 'processing', progress: 50 } : f));
       try {
@@ -424,7 +422,7 @@ export const ToolPage: React.FC = () => {
       }
     } else {
       // Process each file individually
-      for (const pf of files) {
+      for (const pf of filesToProcess) {
         setFiles((prev) => prev.map((f) => f.id === pf.id ? { ...f, state: 'processing', progress: 10 } : f));
         try {
           // Animate to 80% while processing
@@ -460,6 +458,15 @@ export const ToolPage: React.FC = () => {
     setOverallState('completed');
     setIsRunning(false);
   }, [files, dispatch, options]);
+
+  const handleTextProcess = useCallback((event: React.FormEvent) => {
+    event.preventDefault();
+    if (!slug) return;
+    const file = new File([textInput], `${slug}-input.txt`, { type: 'text/plain' });
+    const processingFile: ProcessingFile = { id: crypto.randomUUID(), file, state: 'idle', progress: 0 };
+    setFiles([processingFile]);
+    void handleProcess([processingFile]);
+  }, [slug, textInput, handleProcess]);
 
   const handleReset = () => {
     setFiles([]);
@@ -562,7 +569,7 @@ export const ToolPage: React.FC = () => {
                     )}
                     {!implemented && (
                       <span className="flex items-center gap-1.5 text-xs text-muted-cv">
-                        <Sparkles size={12} /> Coming soon with real processing
+                        <Sparkles size={12} /> Processing engine not included yet
                       </span>
                     )}
                   </div>
@@ -622,15 +629,28 @@ export const ToolPage: React.FC = () => {
             {/* Upload tab */}
             {activeTab === 'upload' && (
               <div className="space-y-4">
-                <UploadZone
-                  onFiles={handleFiles}
-                  multiple={tool.batchSupported || dispatch?.multiFile}
-                  supportedFormats={tool.supportedInputFormats}
-                  color={meta.color}
-                  accept={acceptMap}
-                />
+                {isTextTool ? (
+                  <form onSubmit={handleTextProcess} className="space-y-3">
+                    <label htmlFor="tool-text-input" className="label">Input</label>
+                    <textarea id="tool-text-input" value={textInput} onChange={(e) => setTextInput(e.target.value)} placeholder={dispatch?.textPlaceholder} rows={8} className="input-lg w-full resize-y font-mono text-sm" />
+                    <div className="flex items-center gap-3">
+                      <button type="submit" disabled={isRunning || (!textInput.trim() && !canRunEmptyText)} className="btn-primary btn-lg gap-2" style={{ backgroundColor: meta.color, opacity: isRunning ? 0.7 : 1 }}>
+                        {isRunning ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Sparkles size={16} />{tool.name}</>}
+                      </button>
+                      {dispatch?.optionFields && dispatch.optionFields.length > 0 && <button type="button" onClick={() => setActiveTab('options')} className="btn-secondary btn-md gap-1.5"><Settings size={14} />Options</button>}
+                    </div>
+                  </form>
+                ) : (
+                  <UploadZone
+                    onFiles={handleFiles}
+                    multiple={tool.batchSupported || dispatch?.multiFile}
+                    supportedFormats={tool.supportedInputFormats}
+                    color={meta.color}
+                    accept={acceptMap}
+                  />
+                )}
 
-                {files.length > 0 && (
+                {!isTextTool && files.length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-medium text-primary">
@@ -646,7 +666,7 @@ export const ToolPage: React.FC = () => {
 
                     <div className="flex items-center gap-3 pt-2">
                       <button
-                        onClick={handleProcess}
+                        onClick={() => handleProcess()}
                         disabled={isRunning || files.length === 0}
                         className="btn-primary btn-lg gap-2"
                         style={{
@@ -815,7 +835,7 @@ export const ToolPage: React.FC = () => {
                   { label: 'Batch', value: tool.batchSupported ? 'Supported' : 'Not supported' },
                   { label: 'Plan', value: tool.premium ? 'Premium' : 'Free' },
                   { label: 'Status', value: tool.status === 'stable' ? 'Stable' : tool.status === 'beta' ? 'Beta' : 'Coming soon' },
-                  { label: 'Engine', value: implemented ? 'Real (offline)' : 'UI simulation' },
+                  { label: 'Engine', value: implemented ? 'Browser processor' : 'Not available in this build' },
                 ].map((item) => (
                   <div key={item.label} className="flex items-center justify-between">
                     <span className="text-xs text-muted-cv">{item.label}</span>

@@ -142,19 +142,19 @@ export const Header: React.FC = () => {
             {/* Search */}
             <button
               onClick={() => setSearchOpen(true)}
-              className="hidden sm:flex items-center gap-2 h-8 px-3 rounded-lg text-sm transition-all duration-150 border"
+              className="hidden sm:flex items-center gap-2 h-9 px-3 rounded-lg text-sm transition-all duration-150 border hover:border-accent"
               style={{
                 backgroundColor: 'var(--muted)',
                 borderColor: 'var(--border)',
                 color: 'var(--text-muted)',
-                minWidth: '180px',
+                minWidth: '200px',
               }}
-              aria-label="Search tools (Ctrl+K)"
+              aria-label="Search all 93 tools (Shortcut: Ctrl+K)"
             >
-              <Search size={14} />
-              <span className="flex-1 text-left text-xs">Search tools...</span>
+              <Search size={15} className="text-secondary flex-shrink-0" />
+              <span className="flex-1 text-left text-xs font-medium">Search 90+ tools...</span>
               <kbd
-                className="hidden md:inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-2xs font-mono border"
+                className="hidden md:inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono border shadow-sm"
                 style={{
                   borderColor: 'var(--border)',
                   backgroundColor: 'var(--surface)',
@@ -168,10 +168,11 @@ export const Header: React.FC = () => {
 
             <button
               onClick={() => setSearchOpen(true)}
-              className="sm:hidden btn-ghost btn-md w-9 h-9 px-0"
-              aria-label="Search"
+              className="sm:hidden btn-ghost touch-target w-10 h-10 flex items-center justify-center rounded-lg"
+              aria-label="Search tools"
+              title="Search tools"
             >
-              <Search size={16} />
+              <Search size={18} />
             </button>
 
             {/* Theme switcher */}
@@ -255,49 +256,73 @@ export const Header: React.FC = () => {
               overflowY: 'auto',
             }}
           >
-            <nav className="p-4 space-y-1">
-              {NAV_LINKS.map((link) => (
-                <Link
-                  key={link.href}
-                  to={link.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`block px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                    isActive(link.href)
-                      ? 'bg-accent-subtle text-accent'
-                      : 'text-secondary hover:bg-hover-cv hover:text-primary'
-                  }`}
-                >
-                  {link.label}
-                </Link>
-              ))}
-              <div className="pt-3 mt-3 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
-                <Link
-                  to="/pricing"
-                  className="block px-4 py-2.5 rounded-lg text-sm font-medium text-warning-600"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  ⚡ Premium
-                </Link>
-                {!user && (
-                  <>
-                    <Link
-                      to="/login"
-                      className="btn-secondary btn-md w-full justify-center"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      Sign In
-                    </Link>
-                    <Link
-                      to="/register"
-                      className="btn-primary btn-md w-full justify-center"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      Get Started Free
-                    </Link>
-                  </>
-                )}
-              </div>
-            </nav>
+            <div className="p-4 space-y-3">
+              {/* Mobile Quick Search */}
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setSearchOpen(true);
+                }}
+                className="w-full flex items-center gap-2.5 h-11 px-3.5 rounded-xl border text-sm font-medium transition-all"
+                style={{
+                  backgroundColor: 'var(--muted)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <Search size={16} className="text-secondary" />
+                <span>Search 90+ tools...</span>
+              </button>
+
+              <nav className="space-y-1">
+                {NAV_LINKS.map((link) => (
+                  <Link
+                    key={link.href}
+                    to={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`block px-4 py-3 rounded-lg text-sm font-medium transition-all duration-150 touch-target flex items-center justify-between ${
+                      isActive(link.href)
+                        ? 'bg-accent-subtle text-accent font-semibold'
+                        : 'text-secondary hover:bg-hover-cv hover:text-primary'
+                    }`}
+                  >
+                    <span>{link.label}</span>
+                    {link.hasMegaMenu && <span className="text-2xs text-muted-cv">93 tools</span>}
+                  </Link>
+                ))}
+                <div className="pt-3 mt-3 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
+                  <div className="flex items-center gap-2 px-4 py-1 text-2xs text-muted-cv">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success-500" />
+                    <span>Private &amp; local processing in your browser</span>
+                  </div>
+                  <Link
+                    to="/pricing"
+                    className="block px-4 py-3 rounded-lg text-sm font-medium text-warning-600 hover:bg-hover-cv"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    ⚡ Premium Features
+                  </Link>
+                  {!user && (
+                    <div className="flex gap-2 pt-1">
+                      <Link
+                        to="/login"
+                        className="btn-secondary btn-md flex-1 justify-center"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Sign In
+                      </Link>
+                      <Link
+                        to="/register"
+                        className="btn-primary btn-md flex-1 justify-center"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Get Started
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </nav>
+            </div>
           </div>
         )}
       </header>

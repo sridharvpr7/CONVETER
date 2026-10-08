@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Search, Filter, Grid3X3, LayoutList, Star, ArrowRight,
-  CheckCircle, Layers, Wifi, WifiOff, Sparkles,
+  CheckCircle, Layers, Wifi, WifiOff, Sparkles, Cloud, X,
 } from 'lucide-react';
 import {
   TOOLS, CATEGORY_META, getToolsByCategory, ToolCategory, Tool,
@@ -172,14 +172,14 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, view }) => {
       >
         <div className="flex items-center gap-2">
           {tool.offlineSupported ? (
-            <span className="flex items-center gap-1 text-2xs text-muted-cv">
+            <span className="flex items-center gap-1 text-2xs font-medium text-success-600">
               <span className="w-1.5 h-1.5 rounded-full bg-success-500 inline-block" />
-              Offline
+              Private (Local)
             </span>
           ) : (
             <span className="flex items-center gap-1 text-2xs text-muted-cv">
-              <Wifi size={10} />
-              Cloud
+              <Cloud size={10} />
+              Backend
             </span>
           )}
           {tool.batchSupported && (
@@ -191,10 +191,10 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, view }) => {
         </div>
         <Link
           to={`/tool/${tool.slug}`}
-          className="flex items-center gap-1 text-xs font-medium transition-colors"
+          className="flex items-center gap-1 text-xs font-semibold transition-colors"
           style={{ color: meta.color }}
         >
-          Use
+          Open
           <ArrowRight size={12} />
         </Link>
       </div>
@@ -316,40 +316,82 @@ export const ToolsPage: React.FC = () => {
 
         {/* Main content */}
         <div className="flex-1 min-w-0">
+          {/* Mobile Category Chips (Horizontal Scrollable) */}
+          <div className="lg:hidden flex items-center gap-1.5 overflow-x-auto pb-3 mb-4 scrollbar-none">
+            <Link
+              to="/tools"
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border flex-shrink-0 ${
+                !activeCategory ? 'bg-accent text-white border-accent' : 'bg-surface-cv text-secondary border-cv hover:border-accent'
+              }`}
+            >
+              All Tools ({TOOLS.length})
+            </Link>
+            {categories.map((cat) => (
+              <Link
+                key={cat.id}
+                to={`/tools/${cat.id}`}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border flex-shrink-0 ${
+                  activeCategory === cat.id
+                    ? 'text-white border-transparent'
+                    : 'bg-surface-cv text-secondary border-cv hover:border-accent'
+                }`}
+                style={
+                  activeCategory === cat.id
+                    ? { backgroundColor: cat.color, borderColor: cat.color }
+                    : {}
+                }
+              >
+                {cat.name.replace(' Tools', '')} ({getToolsByCategory(cat.id).length})
+              </Link>
+            ))}
+          </div>
+
           {/* Filters & search bar */}
-          <div className="flex items-center gap-3 mb-6 flex-wrap">
+          <div className="flex items-center gap-3 mb-5 flex-wrap">
             {/* Search */}
             <div
-              className="flex items-center gap-2 flex-1 min-w-48 h-9 px-3 rounded-lg border"
+              className="flex items-center gap-2 flex-1 min-w-56 h-10 px-3.5 rounded-xl border focus-within:border-accent transition-colors"
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
             >
-              <Search size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+              <Search size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Filter tools..."
+                placeholder="Search tools by name, format, or task..."
                 className="flex-1 bg-transparent text-sm outline-none"
                 style={{ color: 'var(--text-primary)' }}
+                aria-label="Filter tools"
               />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-hover-cv text-muted-cv hover:text-primary transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              )}
             </div>
 
             {/* Premium filter */}
             <div
-              className="flex items-center rounded-lg border overflow-hidden flex-shrink-0"
+              className="flex items-center rounded-xl border overflow-hidden flex-shrink-0"
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)' }}
             >
               {(['all', 'free', 'premium'] as const).map((opt) => (
                 <button
                   key={opt}
                   onClick={() => setFilterPremium(opt)}
-                  className={`px-3 h-9 text-xs font-medium capitalize transition-all ${
+                  className={`px-3.5 h-10 text-xs font-semibold capitalize transition-all ${
                     filterPremium === opt
                       ? 'bg-card-cv text-primary shadow-cv-sm'
                       : 'text-muted-cv hover:text-primary'
                   }`}
+                  aria-pressed={filterPremium === opt}
                 >
-                  {opt}
+                  {opt === 'all' ? 'All Plans' : opt === 'free' ? 'Free Only' : 'Pro'}
                 </button>
               ))}
             </div>
@@ -357,67 +399,113 @@ export const ToolsPage: React.FC = () => {
             {/* Offline filter */}
             <button
               onClick={() => setFilterOffline(!filterOffline)}
-              className={`flex items-center gap-1.5 h-9 px-3 rounded-lg border text-xs font-medium transition-all duration-150 flex-shrink-0 ${
+              className={`flex items-center gap-1.5 h-10 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 flex-shrink-0 ${
                 filterOffline ? 'text-success-600' : 'text-muted-cv'
               }`}
               style={{
                 borderColor: filterOffline ? '#22c55e50' : 'var(--border)',
-                backgroundColor: filterOffline ? '#22c55e10' : 'var(--muted)',
+                backgroundColor: filterOffline ? '#22c55e10' : 'var(--surface)',
               }}
+              aria-pressed={filterOffline}
             >
-              <WifiOff size={12} />
-              Offline only
+              <WifiOff size={13} />
+              100% Private (Local)
             </button>
 
             {/* View toggle */}
             <div
-              className="flex items-center rounded-lg border overflow-hidden flex-shrink-0"
+              className="flex items-center rounded-xl border overflow-hidden flex-shrink-0"
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)' }}
             >
               <button
                 onClick={() => setView('grid')}
-                className={`w-9 h-9 flex items-center justify-center transition-all ${
+                className={`w-10 h-10 flex items-center justify-center transition-all ${
                   view === 'grid' ? 'bg-card-cv text-primary shadow-cv-sm' : 'text-muted-cv hover:text-primary'
                 }`}
                 aria-label="Grid view"
+                aria-pressed={view === 'grid'}
               >
-                <Grid3X3 size={14} />
+                <Grid3X3 size={15} />
               </button>
               <button
                 onClick={() => setView('list')}
-                className={`w-9 h-9 flex items-center justify-center transition-all ${
+                className={`w-10 h-10 flex items-center justify-center transition-all ${
                   view === 'list' ? 'bg-card-cv text-primary shadow-cv-sm' : 'text-muted-cv hover:text-primary'
                 }`}
                 aria-label="List view"
+                aria-pressed={view === 'list'}
               >
-                <LayoutList size={14} />
+                <LayoutList size={15} />
               </button>
             </div>
           </div>
 
-          {/* Results count */}
-          <p className="text-xs text-muted-cv mb-4">
-            {allTools.length} tool{allTools.length !== 1 ? 's' : ''}
-            {query ? ` for "${query}"` : ''}
-          </p>
-
-          {/* Tools grid/list */}
-          {allTools.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-              <Search size={40} style={{ color: 'var(--text-disabled)' }} />
-              <div className="text-center">
-                <p className="font-medium text-primary">No tools found</p>
-                <p className="text-sm text-muted-cv mt-1">Try a different search or clear your filters</p>
-              </div>
+          {/* Results count & active filter summary */}
+          <div className="flex items-center justify-between text-xs text-muted-cv mb-4">
+            <p>
+              Showing <span className="font-semibold text-primary">{allTools.length}</span> of {TOOLS.length} tools
+              {query && <span> for &ldquo;{query}&rdquo;</span>}
+              {filterOffline && <span> · Offline only</span>}
+              {filterPremium !== 'all' && <span> · {filterPremium} plan</span>}
+            </p>
+            {(query || filterOffline || filterPremium !== 'all') && (
               <button
                 onClick={() => {
                   setQuery('');
                   setFilterPremium('all');
                   setFilterOffline(false);
                 }}
-                className="btn-secondary btn-sm"
+                className="text-xs text-accent hover:underline font-medium"
               >
-                Clear filters
+                Reset filters
+              </button>
+            )}
+          </div>
+
+          {/* Tools grid/list */}
+          {allTools.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 px-4 rounded-2xl border text-center gap-4"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+            >
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'var(--muted)', color: 'var(--text-disabled)' }}>
+                <Search size={26} />
+              </div>
+              <div className="max-w-md">
+                <p className="font-bold text-primary text-base">No matching tools found</p>
+                <p className="text-xs text-muted-cv mt-1">
+                  We couldn&rsquo;t find anything matching &ldquo;{query}&rdquo; with your current filters. Try one of these popular tools:
+                </p>
+              </div>
+
+              {/* Quick suggestions */}
+              <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+                {[
+                  { name: 'Compress PDF', slug: 'compress-pdf' },
+                  { name: 'Merge PDF', slug: 'merge-pdf' },
+                  { name: 'Image Converter', slug: 'image-converter' },
+                  { name: 'Excel to JSON', slug: 'excel-to-json' },
+                  { name: 'QR Code Generator', slug: 'qr-code-generator' },
+                ].map((s) => (
+                  <Link
+                    key={s.slug}
+                    to={`/tool/${s.slug}`}
+                    className="btn-secondary btn-sm gap-1 text-xs"
+                  >
+                    <span>{s.name}</span>
+                    <ArrowRight size={11} />
+                  </Link>
+                ))}
+              </div>
+
+              <button
+                onClick={() => {
+                  setQuery('');
+                  setFilterPremium('all');
+                  setFilterOffline(false);
+                }}
+                className="btn-primary btn-sm mt-2"
+              >
+                Show All 93 Tools
               </button>
             </div>
           ) : (
@@ -425,7 +513,7 @@ export const ToolsPage: React.FC = () => {
               className={
                 view === 'grid'
                   ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'
-                  : 'flex flex-col gap-2'
+                  : 'flex flex-col gap-2.5'
               }
             >
               {allTools.map((tool) => (

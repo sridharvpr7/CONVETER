@@ -221,17 +221,21 @@ export const MegaMenu: React.FC = () => {
               ))}
             </div>
 
-            {/* View all link */}
-            <div className="mt-4 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
+            {/* View all link & privacy assurance */}
+            <div className="mt-4 pt-3 border-t flex items-center justify-between gap-4 flex-wrap" style={{ borderColor: 'var(--border)' }}>
               <Link
                 to={`/tools/${activeCategory}`}
                 onClick={handleClose}
-                className="btn-ghost btn-sm inline-flex"
+                className="btn-ghost btn-sm inline-flex font-semibold"
                 style={{ color: activeMeta.color }}
               >
-                View all {activeMeta.name} ({getToolsByCategory(activeCategory).length} tools)
+                Explore all {getToolsByCategory(activeCategory).length} {activeMeta.name}
                 <ChevronRight size={14} />
               </Link>
+              <div className="flex items-center gap-2 text-2xs text-muted-cv" style={{ fontSize: '11px' }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-success-500 inline-block" />
+                <span>Runs privately on your device · Zero file uploads</span>
+              </div>
             </div>
           </div>
         </div>

@@ -12,14 +12,14 @@
     --bg: #f8f9fc;
     --surface: #ffffff;
     --card: #ffffff;
-    --border: #e4e6ef;
+    --border: #e2e5f0;
     --border-subtle: #eceef5;
-    --hover: #f0f2f8;
-    --muted: #f4f5f8;
+    --hover: #eff1f8;
+    --muted: #f3f4f8;
     --text-primary: #0f0f1a;
-    --text-secondary: #4b4b6a;
-    --text-muted: #7b7b9a;
-    --text-disabled: #a8a8c0;
+    --text-secondary: #3b3b5c;
+    --text-muted: #5e5e82;
+    --text-disabled: #9494ad;
     --accent: #4A4AE8;
     --accent-hover: #3b3bca;
     --accent-subtle: #eff0ff;
@@ -34,18 +34,18 @@
     /* Dark theme variables */
     --bg: #0d0d14;
     --surface: #12121c;
-    --card: #1a1a28;
-    --border: #252535;
+    --card: #181826;
+    --border: #27273a;
     --border-subtle: #1e1e2e;
     --hover: #222234;
-    --muted: #2a2a3d;
-    --text-primary: #f0f0fc;
-    --text-secondary: #a0a0c0;
-    --text-muted: #6b6b8a;
-    --text-disabled: #484868;
+    --muted: #242436;
+    --text-primary: #f5f5ff;
+    --text-secondary: #b5b5d6;
+    --text-muted: #8e8eb4;
+    --text-disabled: #5a5a7c;
     --accent: #5b6af8;
     --accent-hover: #4A4AE8;
-    --accent-subtle: #1a1a3a;
+    --accent-subtle: #1c1c38;
     --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.4), 0 1px 2px -1px rgba(0,0,0,0.3);
     --shadow: 0 4px 16px 0 rgba(0,0,0,0.5), 0 2px 6px -1px rgba(0,0,0,0.4);
     --shadow-lg: 0 10px 40px 0 rgba(0,0,0,0.6), 0 4px 12px -2px rgba(0,0,0,0.5);
@@ -100,7 +100,19 @@
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    border-radius: 4px;
+    border-radius: 6px;
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -530,5 +542,28 @@
   .font-num {
     font-feature-settings: 'tnum', 'lnum';
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Skip to main content accessible link */
+  .skip-to-content {
+    position: absolute;
+    top: -100px;
+    left: 16px;
+    z-index: 9999;
+    padding: 10px 16px;
+    background-color: var(--accent);
+    color: #ffffff;
+    font-weight: 600;
+    border-radius: 8px;
+    transition: top 0.15s ease;
+  }
+  .skip-to-content:focus {
+    top: 16px;
+  }
+
+  /* Accessible touch target size */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
   }
 }

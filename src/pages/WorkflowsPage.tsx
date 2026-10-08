@@ -186,11 +186,16 @@ export const WorkflowsPage: React.FC = () => {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-primary">Workflows</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-primary">Workflows</h1>
+              <span className="badge badge-success text-2xs">
+                Local Storage
+              </span>
+            </div>
             <p className="text-sm text-muted-cv mt-1">
-              Automate multi-step file processing pipelines
+              Automate multi-step file processing pipelines · Stored locally and privately on your device
             </p>
           </div>
           <button

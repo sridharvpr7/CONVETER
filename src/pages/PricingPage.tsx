@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Zap, Shield, ArrowRight, HelpCircle, X } from 'lucide-react';
+import { Check, Zap, Shield, ArrowRight, HelpCircle, X, Info } from 'lucide-react';
 
 interface PricingPlan {
   id: string;
@@ -174,6 +174,21 @@ export const PricingPage: React.FC = () => {
 
       {/* Plans grid */}
       <div className="container-narrow">
+        {/* Honest Demonstration Notice */}
+        <div
+          className="max-w-2xl mx-auto mb-10 p-4 rounded-xl border flex items-start gap-3 text-xs leading-relaxed"
+          style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+        >
+          <Info size={18} className="text-accent flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-primary mb-0.5">Demo Showcase Notice</p>
+            <p className="text-secondary">
+              All core local conversion tools in CONVETER are <strong>100% free and private</strong> with no account or payment required.
+              The premium tiers and checkout flows shown below represent a planned subscription demonstration.
+            </p>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
           {PLANS.map((plan) => {
             const price = billing === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice;

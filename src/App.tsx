@@ -62,8 +62,13 @@ const PageWrapper: React.FC<{ children: React.ReactNode; noHeader?: boolean }> =
 }) => {
   return (
     <div className="page-enter min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
+      <a href="#main-content" className="skip-to-content">
+        Skip to main content
+      </a>
       {!noHeader && <Header />}
-      {children}
+      <main id="main-content" tabIndex={-1} className="outline-none">
+        {children}
+      </main>
     </div>
   );
 };

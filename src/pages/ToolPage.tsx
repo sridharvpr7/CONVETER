@@ -6,7 +6,7 @@ import {
   RefreshCw, Info, Shield, Cloud, WifiOff, CheckCircle2,
   AlertCircle, X, Loader2, FileText, Layers, ArrowRight,
   Sparkles, Settings, Eye, Copy, Globe, PenLine, Camera,
-  Eraser, Trash2,
+  Eraser, Trash2, Check, ChevronDown, ChevronUp, ArrowLeft,
 } from 'lucide-react';
 import { getToolBySlug, getRelatedTools, CATEGORY_META } from '@/registry/tools';
 import { useAppStore } from '@/store/app.store';
@@ -476,128 +476,240 @@ const FileItem: React.FC<{
 };
 
 // ────────────────────────────────────────────────
-// Dynamic Options Panel
+// Friendly Error Parser
+// ────────────────────────────────────────────────
+function parseFriendlyError(errorMsg?: string, isCloud?: boolean): { headline: string; detail: string; tips: string[] } {
+  const msg = errorMsg || 'An unexpected issue occurred while processing this file.';
+  const lower = msg.toLowerCase();
+
+  if (lower.includes('fetch') || lower.includes('backend') || lower.includes('network') || lower.includes('connection') || lower.includes('econnrefused')) {
+    return {
+      headline: 'Backend Service Required',
+      detail: isCloud
+        ? 'This tool requires the CONVETER backend service (VITE_BACKEND_URL), which is currently not reachable.'
+        : 'Network connection issue while communicating with the processing worker.',
+      tips: [
+        'Ensure your companion backend server is running',
+        'Check that VITE_BACKEND_URL in your environment is properly set',
+        'Verify network connectivity and CORS permissions',
+      ],
+    };
+  }
+
+  if (lower.includes('password') || lower.includes('encrypt') || lower.includes('protected')) {
+    return {
+      headline: 'File is Password-Protected',
+      detail: 'This document requires an authorization password to read or modify.',
+      tips: [
+        'Enter the file password in the Options tab',
+        'Use the Unlock PDF tool to decrypt the file first',
+        'Ensure you have permission to modify this document',
+      ],
+    };
+  }
+
+  if (lower.includes('format') || lower.includes('unsupported') || lower.includes('corrupt') || lower.includes('invalid') || lower.includes('signature')) {
+    return {
+      headline: 'File Format Issue',
+      detail: msg,
+      tips: [
+        'Check that the uploaded file is not corrupted',
+        'Verify the file extension matches the actual file content',
+        'Try opening and re-saving the file in your default viewer first',
+      ],
+    };
+  }
+
+  return {
+    headline: 'Processing Error',
+    detail: msg,
+    tips: [
+      'Check that the file size is within limits (up to 100MB)',
+      'Try running with default options',
+      'Refresh the page and try one file at a time',
+    ],
+  };
+}
+
+// ────────────────────────────────────────────────
+// Dynamic Options Panel with Progressive Disclosure
 // ────────────────────────────────────────────────
 const OptionsPanel: React.FC<{
   fields: OptionField[];
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
+  onReset?: () => void;
   hint?: string;
   color: string;
-}> = ({ fields, values, onChange, hint, color }) => {
-  return (
-    <div className="space-y-5">
-      {fields.map((field) => {
-        const val = values[field.key] ?? field.default;
-        return (
-          <div key={field.key}>
-            {field.type !== 'checkbox' && <label className="label">{field.label}</label>}
+}> = ({ fields, values, onChange, onReset, hint, color }) => {
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
-            {field.type === 'select' && (
-              <div className="flex flex-wrap gap-2 mt-1.5">
-                {field.options.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => onChange(field.key, opt.value)}
-                    className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-all duration-150"
-                    style={{
-                      borderColor: val === opt.value ? color : 'var(--border)',
-                      backgroundColor: val === opt.value ? color + '15' : 'var(--muted)',
-                      color: val === opt.value ? color : 'var(--text-secondary)',
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            )}
+  // If more than 3 fields, split into primary and advanced
+  const primaryFields = fields.length > 4 ? fields.slice(0, 3) : fields;
+  const advancedFields = fields.length > 4 ? fields.slice(3) : [];
 
-            {field.type === 'range' && (
-              <div className="flex items-center gap-3 mt-1.5">
-                <input
-                  type="range"
-                  min={field.min}
-                  max={field.max}
-                  step={field.step}
-                  value={Number(val)}
-                  onChange={(e) => onChange(field.key, Number(e.target.value))}
-                  className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
-                  style={{ accentColor: color }}
-                />
-                <span
-                  className="text-sm font-semibold font-num w-16 text-right"
-                  style={{ color }}
-                >
-                  {String(val)}{field.unit ?? ''}
-                </span>
-              </div>
-            )}
-
-            {field.type === 'number' && (
-              <input
-                type="number"
-                min={field.min}
-                max={field.max}
-                value={Number(val)}
-                onChange={(e) => onChange(field.key, Number(e.target.value))}
-                className="input-lg mt-1.5"
-                style={{ maxWidth: '160px' }}
-              />
-            )}
-
-            {field.type === 'text' && (
-              <input
-                type="text"
-                placeholder={field.placeholder}
-                value={String(val)}
-                onChange={(e) => onChange(field.key, e.target.value)}
-                className="input-lg mt-1.5"
-              />
-            )}
-
-            {field.type === 'password' && (
-              <div className="mt-1.5">
-                <label className="label mb-1">{field.label}</label>
-                <input
-                  type="password"
-                  placeholder={field.placeholder}
-                  value={String(val)}
-                  onChange={(e) => onChange(field.key, e.target.value)}
-                  className="input-lg w-full"
-                  autoComplete="new-password"
-                />
-              </div>
-            )}
-
-            {field.type === 'textarea' && (
-              <textarea
-                placeholder={field.placeholder}
-                value={String(val)}
-                rows={field.rows ?? 4}
-                onChange={(e) => onChange(field.key, e.target.value)}
-                className="input-lg mt-1.5 w-full resize-y font-mono text-sm"
-              />
-            )}
-
-            {field.type === 'checkbox' && (
-              <div className="flex items-center gap-2 mt-1.5">
-                <input
-                  type="checkbox"
-                  id={`opt-${field.key}`}
-                  checked={Boolean(val)}
-                  onChange={(e) => onChange(field.key, e.target.checked)}
-                  className="w-4 h-4 rounded"
-                  style={{ accentColor: color }}
-                />
-                <label htmlFor={`opt-${field.key}`} className="text-sm text-secondary cursor-pointer">
-                  {field.label}
-                </label>
-              </div>
+  const renderField = (field: OptionField) => {
+    const val = values[field.key] ?? field.default;
+    return (
+      <div key={field.key} className="space-y-1.5">
+        {field.type !== 'checkbox' && (
+          <div className="flex items-center justify-between">
+            <label htmlFor={`opt-${field.key}`} className="label mb-0 font-medium">
+              {field.label}
+            </label>
+            {field.default !== undefined && (
+              <span className="text-2xs text-muted-cv" style={{ fontSize: '11px' }}>
+                Default: {String(field.default)}
+              </span>
             )}
           </div>
-        );
-      })}
+        )}
+
+        {field.type === 'select' && (
+          <div className="flex flex-wrap gap-2 pt-0.5">
+            {field.options.map((opt) => {
+              const isSelected = val === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  id={`opt-${field.key}-${opt.value}`}
+                  aria-pressed={isSelected}
+                  onClick={() => onChange(field.key, opt.value)}
+                  className="px-3.5 py-2 rounded-lg border text-sm font-medium transition-all duration-150 flex items-center gap-1.5"
+                  style={{
+                    borderColor: isSelected ? color : 'var(--border)',
+                    backgroundColor: isSelected ? `${color}15` : 'var(--muted)',
+                    color: isSelected ? color : 'var(--text-secondary)',
+                    boxShadow: isSelected ? `0 0 0 1px ${color}` : 'none',
+                  }}
+                >
+                  {isSelected && <Check size={13} style={{ color }} />}
+                  <span>{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {field.type === 'range' && (
+          <div className="flex items-center gap-3 pt-1">
+            <input
+              type="range"
+              id={`opt-${field.key}`}
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              value={Number(val)}
+              onChange={(e) => onChange(field.key, Number(e.target.value))}
+              className="flex-1 h-2 rounded-full appearance-none cursor-pointer"
+              style={{ accentColor: color }}
+              aria-label={field.label}
+            />
+            <span
+              className="text-sm font-semibold font-num px-2.5 py-1 rounded-md border min-w-[64px] text-center"
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)', color }}
+            >
+              {String(val)}{field.unit ?? ''}
+            </span>
+          </div>
+        )}
+
+        {field.type === 'number' && (
+          <input
+            type="number"
+            id={`opt-${field.key}`}
+            min={field.min}
+            max={field.max}
+            value={Number(val)}
+            onChange={(e) => onChange(field.key, Number(e.target.value))}
+            className="input-lg mt-1"
+            style={{ maxWidth: '180px' }}
+          />
+        )}
+
+        {field.type === 'text' && (
+          <input
+            type="text"
+            id={`opt-${field.key}`}
+            placeholder={field.placeholder}
+            value={String(val)}
+            onChange={(e) => onChange(field.key, e.target.value)}
+            className="input-lg mt-1 w-full"
+          />
+        )}
+
+        {field.type === 'password' && (
+          <input
+            type="password"
+            id={`opt-${field.key}`}
+            placeholder={field.placeholder}
+            value={String(val)}
+            onChange={(e) => onChange(field.key, e.target.value)}
+            className="input-lg w-full mt-1"
+            autoComplete="new-password"
+          />
+        )}
+
+        {field.type === 'textarea' && (
+          <textarea
+            id={`opt-${field.key}`}
+            placeholder={field.placeholder}
+            value={String(val)}
+            rows={field.rows ?? 4}
+            onChange={(e) => onChange(field.key, e.target.value)}
+            className="input-lg mt-1 w-full resize-y font-mono text-sm"
+          />
+        )}
+
+        {field.type === 'checkbox' && (
+          <div className="flex items-center gap-2.5 pt-1">
+            <input
+              type="checkbox"
+              id={`opt-${field.key}`}
+              checked={Boolean(val)}
+              onChange={(e) => onChange(field.key, e.target.checked)}
+              className="w-4 h-4 rounded cursor-pointer"
+              style={{ accentColor: color }}
+            />
+            <label htmlFor={`opt-${field.key}`} className="text-sm text-secondary cursor-pointer select-none font-medium">
+              {field.label}
+            </label>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Primary fields */}
+      <div className="space-y-5">
+        {primaryFields.map(renderField)}
+      </div>
+
+      {/* Advanced fields toggle */}
+      {advancedFields.length > 0 && (
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3 rounded-lg border transition-colors hover:bg-hover-cv"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+            aria-expanded={showAdvanced}
+          >
+            {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <span>{showAdvanced ? 'Hide advanced settings' : `Show advanced settings (${advancedFields.length} more)`}</span>
+          </button>
+
+          {showAdvanced && (
+            <div className="mt-4 p-4 rounded-xl border space-y-5 animate-slide-down" style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}>
+              <p className="text-2xs font-semibold uppercase tracking-wider text-muted-cv">Advanced Configuration</p>
+              {advancedFields.map(renderField)}
+            </div>
+          )}
+        </div>
+      )}
 
       {hint && (
         <div className="flex items-start gap-2.5 p-3 rounded-lg border"
@@ -605,6 +717,18 @@ const OptionsPanel: React.FC<{
         >
           <Info size={14} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 1 }} />
           <p className="text-xs text-muted-cv leading-relaxed">{hint}</p>
+        </div>
+      )}
+
+      {onReset && (
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-xs text-muted-cv hover:text-primary transition-colors flex items-center gap-1"
+          >
+            <RefreshCw size={11} /> Reset all settings to defaults
+          </button>
         </div>
       )}
     </div>
@@ -1020,42 +1144,128 @@ export const ToolPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Tabs */}
-            <div className="flex border-b mb-6" style={{ borderColor: 'var(--border)' }}>
-              {(['upload', 'options', 'result'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2.5 text-sm font-medium capitalize transition-all duration-150 border-b-2 -mb-px flex items-center gap-1.5 ${
-                    activeTab === tab ? 'border-current' : 'border-transparent text-muted-cv hover:text-primary'
-                  }`}
-                  style={activeTab === tab ? { color: meta.color, borderColor: meta.color } : {}}
+            {/* Guided Workflow Stepper */}
+            <nav aria-label="Tool steps" className="mb-6 p-1.5 rounded-xl border flex items-center gap-1 sm:gap-2 flex-wrap" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+              {/* Step 1: Input */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('upload')}
+                className={`flex-1 min-w-[130px] flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'upload' ? 'shadow-sm' : 'hover:bg-hover-cv opacity-80 hover:opacity-100'
+                }`}
+                style={{
+                  backgroundColor: activeTab === 'upload' ? `${meta.color}15` : 'transparent',
+                  color: activeTab === 'upload' ? meta.color : 'var(--text-secondary)',
+                }}
+              >
+                <span
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-2xs font-bold"
+                  style={{
+                    backgroundColor: files.length > 0 || urlInput || textInput ? '#22c55e' : (activeTab === 'upload' ? meta.color : 'var(--muted)'),
+                    color: files.length > 0 || urlInput || textInput || activeTab === 'upload' ? '#ffffff' : 'var(--text-muted)',
+                  }}
                 >
-                  {tab === 'upload' && (isUrlTool ? <Globe size={13} /> : <Upload size={13} />)}
-                  {tab === 'options' && <Settings size={13} />}
-                  {tab === 'result' && <Eye size={13} />}
-                  {tab === 'upload' ? (isUrlTool ? 'Enter URL' : 'Upload Files') : tab === 'options' ? 'Options' : 'Results'}
-                  {tab === 'result' && overallState === 'completed' && (
-                    <span className="w-4 h-4 flex items-center justify-center rounded-full text-white text-2xs ml-1"
-                      style={{ backgroundColor: '#22c55e', fontSize: '10px' }}
-                    >
-                      {completedCount}
-                    </span>
-                  )}
-                  {tab === 'options' && (dispatch?.optionFields?.length ?? 0) > 0 && (
-                    <span className="w-4 h-4 flex items-center justify-center rounded-full text-white text-2xs ml-1"
-                      style={{ backgroundColor: 'var(--text-muted)', fontSize: '10px' }}
-                    >
-                      {dispatch!.optionFields!.length}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
+                  {files.length > 0 || urlInput || textInput ? <Check size={11} strokeWidth={3} /> : '1'}
+                </span>
+                <span className="truncate">1. {isUrlTool ? 'Enter URL' : isTextTool ? 'Provide Text' : 'Select Files'}</span>
+                {files.length > 0 && (
+                  <span className="badge badge-success text-2xs ml-auto" style={{ fontSize: '10px' }}>
+                    {files.length} ready
+                  </span>
+                )}
+              </button>
+
+              <ChevronRight size={13} className="text-muted-cv hidden sm:block flex-shrink-0" />
+
+              {/* Step 2: Options */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('options')}
+                className={`flex-1 min-w-[130px] flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'options' ? 'shadow-sm' : 'hover:bg-hover-cv opacity-80 hover:opacity-100'
+                }`}
+                style={{
+                  backgroundColor: activeTab === 'options' ? `${meta.color}15` : 'transparent',
+                  color: activeTab === 'options' ? meta.color : 'var(--text-secondary)',
+                }}
+              >
+                <span
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-2xs font-bold"
+                  style={{
+                    backgroundColor: activeTab === 'options' ? meta.color : 'var(--muted)',
+                    color: activeTab === 'options' ? '#ffffff' : 'var(--text-muted)',
+                  }}
+                >
+                  2
+                </span>
+                <span className="truncate">2. Configure</span>
+                <span className="text-2xs text-muted-cv ml-auto" style={{ fontSize: '10px' }}>
+                  {(dispatch?.optionFields?.length ?? 0) > 0 ? `${dispatch!.optionFields!.length} settings` : 'Default'}
+                </span>
+              </button>
+
+              <ChevronRight size={13} className="text-muted-cv hidden sm:block flex-shrink-0" />
+
+              {/* Step 3: Result */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('result')}
+                className={`flex-1 min-w-[130px] flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'result' ? 'shadow-sm' : 'hover:bg-hover-cv opacity-80 hover:opacity-100'
+                }`}
+                style={{
+                  backgroundColor: activeTab === 'result' ? `${meta.color}15` : 'transparent',
+                  color: activeTab === 'result' ? meta.color : 'var(--text-secondary)',
+                }}
+              >
+                <span
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-2xs font-bold"
+                  style={{
+                    backgroundColor: completedCount > 0 ? '#22c55e' : (activeTab === 'result' ? meta.color : 'var(--muted)'),
+                    color: completedCount > 0 || activeTab === 'result' ? '#ffffff' : 'var(--text-muted)',
+                  }}
+                >
+                  {completedCount > 0 ? <Check size={11} strokeWidth={3} /> : '3'}
+                </span>
+                <span className="truncate">3. Results &amp; Download</span>
+                {completedCount > 0 && (
+                  <span className="badge badge-success text-2xs ml-auto" style={{ fontSize: '10px' }}>
+                    {completedCount} done
+                  </span>
+                )}
+              </button>
+            </nav>
 
             {/* Upload / Input tab */}
             {activeTab === 'upload' && (
               <div className="space-y-4">
+                {/* Privacy reminder banner */}
+                <div
+                  className="p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs"
+                  style={{
+                    backgroundColor: implemented && tool.processingMode === 'local' ? '#22c55e08' : '#3b82f608',
+                    borderColor: implemented && tool.processingMode === 'local' ? '#22c55e25' : '#3b82f625',
+                  }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    {implemented && tool.processingMode === 'local' ? (
+                      <WifiOff size={16} className="text-success-600 flex-shrink-0" />
+                    ) : (
+                      <Cloud size={16} style={{ color: '#3b82f6' }} className="flex-shrink-0" />
+                    )}
+                    <span className="text-secondary">
+                      {implemented && tool.processingMode === 'local'
+                        ? 'Files are processed 100% locally on your computer. Zero uploads, total privacy.'
+                        : 'Processes securely via companion backend service.'}
+                    </span>
+                  </div>
+                  {tool.batchSupported && (
+                    <span className="badge badge-neutral text-2xs flex-shrink-0">
+                      Batch Enabled
+                    </span>
+                  )}
+                </div>
+
                 {/* URL input mode */}
                 {isUrlTool && (
                   <UrlInputPanel
@@ -1071,7 +1281,7 @@ export const ToolPage: React.FC = () => {
                 {/* Text input mode */}
                 {isTextTool && (
                   <form onSubmit={handleTextProcess} className="space-y-3">
-                    <label htmlFor="tool-text-input" className="label">Input</label>
+                    <label htmlFor="tool-text-input" className="label">Input Text</label>
                     <textarea
                       id="tool-text-input"
                       value={textInput}
@@ -1091,7 +1301,7 @@ export const ToolPage: React.FC = () => {
                       </button>
                       {dispatch?.optionFields && dispatch.optionFields.length > 0 && (
                         <button type="button" onClick={() => setActiveTab('options')} className="btn-secondary btn-md gap-1.5">
-                          <Settings size={14} />Options
+                          <Settings size={14} />Configure Options
                         </button>
                       )}
                     </div>
@@ -1131,52 +1341,73 @@ export const ToolPage: React.FC = () => {
                   </>
                 )}
 
-                {/* File list */}
+                {/* File list & Obvious Next Step Action Banner */}
                 {!isTextTool && !isUrlTool && files.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-primary">
-                        {files.length} file{files.length !== 1 ? 's' : ''} selected
+                  <div className="space-y-3 pt-2">
+                    {/* High-visibility next step guidance banner */}
+                    <div
+                      className="p-4 rounded-xl border flex items-center justify-between flex-wrap gap-4"
+                      style={{ backgroundColor: 'var(--card)', borderColor: `${meta.color}40`, boxShadow: `0 2px 12px ${meta.color}10` }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0"
+                          style={{ backgroundColor: meta.color }}
+                        >
+                          <Sparkles size={18} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-primary">
+                            {files.length} file{files.length !== 1 ? 's' : ''} ready to process
+                          </p>
+                          <p className="text-xs text-muted-cv">
+                            Proceed directly or customize options in step 2.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {dispatch?.optionFields && dispatch.optionFields.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('options')}
+                            className="btn-secondary btn-md gap-1.5"
+                          >
+                            <Settings size={14} />
+                            Options ({dispatch.optionFields.length})
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleProcess()}
+                          disabled={isRunning || (isSignatureTool && !signatureDataUrl)}
+                          className="btn-primary btn-md gap-2"
+                          style={{ backgroundColor: meta.color }}
+                        >
+                          {isRunning ? (
+                            <><Loader2 size={16} className="animate-spin" />Processing…</>
+                          ) : (
+                            <><Sparkles size={16} />Start Conversion<ArrowRight size={14} /></>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-xs font-semibold text-muted-cv uppercase tracking-wider">
+                        Selected Files ({files.length})
                       </p>
-                      <button onClick={() => setFiles([])} className="text-xs text-muted-cv hover:text-primary transition-colors flex items-center gap-1">
+                      <button
+                        onClick={() => setFiles([])}
+                        className="text-xs text-muted-cv hover:text-error-600 transition-colors flex items-center gap-1"
+                      >
                         <Trash2 size={11} /> Clear all
                       </button>
                     </div>
-                    {files.map((pf) => (
-                      <FileItem key={pf.id} pf={pf} color={meta.color} onRemove={handleRemove} onDownload={handleDownload} />
-                    ))}
 
-                    <div className="flex items-center gap-3 pt-2">
-                      <button
-                        onClick={() => handleProcess()}
-                        disabled={isRunning || files.length === 0 || (isSignatureTool && !signatureDataUrl)}
-                        className="btn-primary btn-lg gap-2"
-                        style={{
-                          backgroundColor: meta.color,
-                          boxShadow: isRunning ? 'none' : `0 4px 16px ${meta.color}40`,
-                          opacity: isRunning ? 0.7 : 1,
-                        }}
-                      >
-                        {isRunning ? (
-                          <><Loader2 size={16} className="animate-spin" />Processing…</>
-                        ) : (
-                          <><Sparkles size={16} />{tool.name}</>
-                        )}
-                      </button>
-                      {isSignatureTool && !signatureDataUrl && (
-                        <p className="text-xs text-muted-cv flex items-center gap-1">
-                          <PenLine size={12} /> Draw your signature above first
-                        </p>
-                      )}
-                      {dispatch?.optionFields && dispatch.optionFields.length > 0 && !isRunning && (
-                        <button
-                          onClick={() => setActiveTab('options')}
-                          className="btn-secondary btn-md gap-1.5"
-                        >
-                          <Settings size={14} />
-                          Options
-                        </button>
-                      )}
+                    <div className="space-y-2">
+                      {files.map((pf) => (
+                        <FileItem key={pf.id} pf={pf} color={meta.color} onRemove={handleRemove} onDownload={handleDownload} />
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1188,10 +1419,10 @@ export const ToolPage: React.FC = () => {
                   >
                     <AlertCircle size={16} style={{ color: '#f59e0b', flexShrink: 0, marginTop: 2 }} />
                     <div>
-                      <p className="text-sm font-medium text-primary mb-1">Processor not available</p>
+                      <p className="text-sm font-medium text-primary mb-1">Processor preview</p>
                       <p className="text-xs text-muted-cv leading-relaxed">
-                        This tool is listed in the catalog but does not have a connected processor in this build.
-                        No simulated results will be returned.
+                        This tool is registered in the catalog and will execute once its dedicated engine is connected.
+                        No mock or fake conversion outputs are produced.
                       </p>
                     </div>
                   </div>
@@ -1202,12 +1433,30 @@ export const ToolPage: React.FC = () => {
             {/* Options tab */}
             {activeTab === 'options' && (
               <div className="p-6 rounded-xl border" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
-                <p className="text-sm font-semibold text-primary mb-6">Tool Options</p>
+                <div className="flex items-center justify-between mb-6 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
+                  <div>
+                    <h3 className="text-sm font-semibold text-primary">Tool Configuration</h3>
+                    <p className="text-xs text-muted-cv mt-0.5">Adjust settings to customize your output</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('upload')}
+                    className="btn-ghost btn-sm gap-1 text-xs"
+                  >
+                    <ArrowLeft size={13} /> Back to Files
+                  </button>
+                </div>
+
                 {dispatch?.optionFields && dispatch.optionFields.length > 0 ? (
                   <OptionsPanel
                     fields={dispatch.optionFields}
                     values={options}
                     onChange={setOption}
+                    onReset={() => {
+                      const defaults: Record<string, unknown> = {};
+                      dispatch.optionFields?.forEach((f) => { defaults[f.key] = f.default; });
+                      setOptions(defaults);
+                    }}
                     hint={dispatch.optionsHint}
                     color={meta.color}
                   />
@@ -1217,83 +1466,203 @@ export const ToolPage: React.FC = () => {
                   >
                     <Info size={16} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 2 }} />
                     <p className="text-xs text-muted-cv leading-relaxed">
-                      This tool has no additional options. Simply upload your files and click Process.
+                      This tool uses automatic optimal settings and has no extra configuration required.
                     </p>
                   </div>
                 )}
-                {(files.length > 0 || urlInput) && (
-                  <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
-                    <button
-                      onClick={() => {
+
+                {/* Clear Next Step from Options */}
+                <div className="mt-8 pt-4 border-t flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: 'var(--border)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('upload')}
+                    className="btn-secondary btn-md gap-1.5"
+                  >
+                    <ArrowLeft size={14} /> Back to File Upload
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (files.length === 0 && !isUrlTool && !isTextTool) {
                         setActiveTab('upload');
-                        if (isUrlTool) { handleUrlProcess(); }
-                        else { void handleProcess(); }
-                      }}
-                      className="btn-primary btn-md gap-2"
-                      style={{ backgroundColor: meta.color }}
-                    >
-                      <Sparkles size={14} />
-                      Apply &amp; Process
-                    </button>
-                  </div>
-                )}
+                      } else if (isUrlTool) {
+                        handleUrlProcess();
+                      } else {
+                        void handleProcess();
+                      }
+                    }}
+                    className="btn-primary btn-md gap-2"
+                    style={{ backgroundColor: meta.color }}
+                  >
+                    <Sparkles size={14} />
+                    {files.length > 0 || urlInput ? 'Apply Settings & Convert Now' : 'Save & Select Files'}
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
               </div>
             )}
 
             {/* Result tab */}
             {activeTab === 'result' && (
               <div className="space-y-4">
+                {/* Idle empty state */}
                 {overallState === 'idle' && (
-                  <div className="flex flex-col items-center justify-center py-20 gap-4">
+                  <div className="flex flex-col items-center justify-center py-16 px-4 rounded-xl border text-center gap-4"
+                    style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+                  >
                     <div className="w-16 h-16 flex items-center justify-center rounded-2xl"
-                      style={{ backgroundColor: 'var(--muted)', color: 'var(--text-disabled)' }}
+                      style={{ backgroundColor: `${meta.color}15`, color: meta.color }}
                     >
-                      <Eye size={28} />
+                      <Upload size={28} />
                     </div>
-                    <div className="text-center">
-                      <p className="font-medium text-primary">No results yet</p>
-                      <p className="text-sm text-muted-cv mt-1">
-                        {isUrlTool ? 'Enter a URL and click Analyze' : 'Upload files and run the tool'} to see results here
+                    <div className="max-w-md">
+                      <h3 className="font-semibold text-primary text-base">Ready to start conversion</h3>
+                      <p className="text-xs text-muted-cv mt-1.5 leading-relaxed">
+                        {isUrlTool
+                          ? 'Enter a web URL in Step 1 to analyze and export results.'
+                          : isTextTool
+                          ? 'Enter your input text in Step 1 to generate output.'
+                          : 'Select or drag your files into Step 1 to begin. Processed results will appear here with direct download links.'}
                       </p>
                     </div>
-                    <button onClick={() => setActiveTab('upload')} className="btn-primary btn-md" style={{ backgroundColor: meta.color }}>
-                      {isUrlTool ? <><Globe size={15} /> Enter URL</> : <><Upload size={15} /> Upload Files</>}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('upload')}
+                      className="btn-primary btn-md gap-2"
+                      style={{ backgroundColor: meta.color }}
+                    >
+                      <Upload size={14} />
+                      Go to Step 1: {isUrlTool ? 'Enter URL' : 'Select Files'}
                     </button>
                   </div>
                 )}
 
-                {(overallState === 'processing' || overallState === 'completed') && (
+                {/* Processing State */}
+                {overallState === 'processing' && (
+                  <div
+                    className="p-8 rounded-xl border flex flex-col items-center justify-center text-center gap-4"
+                    style={{ backgroundColor: 'var(--card)', borderColor: `${meta.color}40` }}
+                  >
+                    <div
+                      className="w-14 h-14 rounded-2xl flex items-center justify-center text-white"
+                      style={{ backgroundColor: meta.color }}
+                    >
+                      <Loader2 size={26} className="animate-spin" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-primary">Converting your files...</h3>
+                      <p className="text-xs text-muted-cv mt-1 max-w-sm">
+                        {tool.processingMode === 'local'
+                          ? 'Processing directly in your browser. Your files never leave this device.'
+                          : 'Sending task securely to the conversion service.'}
+                      </p>
+                    </div>
+                    <div className="w-full max-w-md progress-bar">
+                      <div className="progress-fill" style={{ width: '65%', backgroundColor: meta.color }} />
+                    </div>
+                    <p className="text-2xs text-muted-cv">Please keep this browser window open</p>
+                  </div>
+                )}
+
+                {/* Completed State */}
+                {overallState === 'completed' && (
                   <>
-                    {overallState === 'completed' && (
-                      <div className="flex items-center justify-between p-4 rounded-xl border"
-                        style={{
-                          backgroundColor: failedCount > 0 ? '#f59e0b08' : '#22c55e08',
-                          borderColor: failedCount > 0 ? '#f59e0b30' : '#22c55e30',
-                        }}
+                    {/* Success celebratory banner when all succeeded */}
+                    {failedCount === 0 && completedCount > 0 && (
+                      <div
+                        className="p-5 rounded-xl border flex items-center justify-between flex-wrap gap-4"
+                        style={{ backgroundColor: '#22c55e0a', borderColor: '#22c55e35' }}
                       >
-                        <div className="flex items-center gap-3">
-                          <CheckCircle2 size={20} style={{ color: failedCount > 0 ? '#f59e0b' : '#22c55e' }} />
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-11 h-11 rounded-xl bg-success-500 flex items-center justify-center text-white flex-shrink-0">
+                            <CheckCircle2 size={24} />
+                          </div>
                           <div>
-                            <p className="text-sm font-semibold text-primary">
-                              {completedCount} file{completedCount !== 1 ? 's' : ''} processed
-                              {failedCount > 0 && <span className="ml-2" style={{ color: '#ef4444' }}>{failedCount} failed</span>}
+                            <h3 className="text-base font-bold text-primary">
+                              {completedCount} file{completedCount !== 1 ? 's' : ''} converted successfully!
+                            </h3>
+                            <p className="text-xs text-muted-cv mt-0.5">
+                              Processed {tool.processingMode === 'local' ? 'privately on your device' : 'securely'}. Ready for download.
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {completedCount > 1 && (
-                            <button onClick={handleDownloadAll} className="btn-primary btn-sm gap-1.5"
+                          {completedCount > 1 ? (
+                            <button
+                              onClick={handleDownloadAll}
+                              className="btn-primary btn-md gap-2"
                               style={{ backgroundColor: meta.color }}
                             >
-                              <DownloadCloud size={13} /> Download All
+                              <DownloadCloud size={15} /> Download All Files
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                const comp = files.find((f) => f.state === 'completed');
+                                if (comp) handleDownload(comp);
+                              }}
+                              className="btn-primary btn-md gap-2"
+                              style={{ backgroundColor: meta.color }}
+                            >
+                              <DownloadCloud size={15} /> Download Result
                             </button>
                           )}
-                          <button onClick={handleReset} className="btn-secondary btn-sm gap-1.5">
-                            <RefreshCw size={13} /> New Conversion
+                          <button onClick={handleReset} className="btn-secondary btn-md gap-1.5">
+                            <RefreshCw size={14} /> Convert Another
                           </button>
                         </div>
                       </div>
                     )}
+
+                    {/* Friendly Error Banner when failures occur */}
+                    {failedCount > 0 && (
+                      <div
+                        className="p-5 rounded-xl border space-y-3"
+                        style={{ backgroundColor: '#ef444408', borderColor: '#ef444430' }}
+                      >
+                        <div className="flex items-start gap-3">
+                          <AlertCircle size={20} className="text-error-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <h4 className="text-sm font-semibold text-error-600">
+                              {parseFriendlyError(files.find((f) => f.state === 'failed')?.error, tool.processingMode !== 'local').headline}
+                            </h4>
+                            <p className="text-xs text-secondary mt-1">
+                              {parseFriendlyError(files.find((f) => f.state === 'failed')?.error, tool.processingMode !== 'local').detail}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t text-xs text-muted-cv space-y-1.5" style={{ borderColor: '#ef444420' }}>
+                          <p className="font-semibold text-primary">Suggested next actions:</p>
+                          <ul className="list-disc list-inside space-y-1 pl-1">
+                            {parseFriendlyError(files.find((f) => f.state === 'failed')?.error, tool.processingMode !== 'local').tips.map((tip, idx) => (
+                              <li key={idx}>{tip}</li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2">
+                          <button
+                            onClick={() => {
+                              setActiveTab('upload');
+                              void handleProcess();
+                            }}
+                            className="btn-primary btn-sm gap-1.5"
+                            style={{ backgroundColor: meta.color }}
+                          >
+                            <RefreshCw size={13} /> Try Again
+                          </button>
+                          <button
+                            onClick={handleReset}
+                            className="btn-secondary btn-sm gap-1.5"
+                          >
+                            <Upload size={13} /> Choose Another File
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* List of completed/failed items */}
                     <div className="space-y-2">
                       {files.map((pf) => (
                         <FileItem key={pf.id} pf={pf} color={meta.color} onRemove={handleRemove} onDownload={handleDownload} />

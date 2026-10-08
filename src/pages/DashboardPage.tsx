@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FileText, Clock, Star, Workflow, HardDrive,
-  ArrowRight, Plus, Zap, WifiOff, Cloud,
+  ArrowRight, Plus, Zap, WifiOff, Cloud, Shield, Sparkles, X, CheckCircle2,
 } from 'lucide-react';
 import { getPopularTools, CATEGORY_META } from '@/registry/tools';
 import type { HistoryItem } from '@/pages/HistoryPage';
@@ -20,6 +20,20 @@ export const DashboardPage: React.FC = () => {
   const favoriteTools = getPopularTools(6);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [workflows, setWorkflows] = useState<SavedWorkflow[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('conveter_hide_onboarding') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissOnboarding = () => {
+    setShowOnboarding(false);
+    try {
+      localStorage.setItem('conveter_hide_onboarding', 'true');
+    } catch {}
+  };
 
   useEffect(() => {
     try {
@@ -71,6 +85,84 @@ export const DashboardPage: React.FC = () => {
             New Conversion
           </Link>
         </div>
+
+        {/* First-time onboarding card */}
+        {showOnboarding && (
+          <div
+            className="mb-8 p-5 rounded-2xl border relative animate-slide-down"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+              background: 'linear-gradient(135deg, var(--card) 0%, var(--surface) 100%)',
+            }}
+          >
+            <button
+              onClick={dismissOnboarding}
+              className="absolute top-4 right-4 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-hover-cv text-muted-cv hover:text-primary transition-colors"
+              aria-label="Dismiss quick start guide"
+            >
+              <X size={15} />
+            </button>
+
+            <div className="flex items-start gap-4">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-accent flex-shrink-0"
+                style={{ backgroundColor: 'var(--accent-subtle)' }}
+              >
+                <Sparkles size={20} />
+              </div>
+              <div className="flex-1 pr-6">
+                <h3 className="text-base font-bold text-primary mb-1">
+                  Welcome to CONVETER · Quick Start &amp; Privacy Guide
+                </h3>
+                <p className="text-xs text-muted-cv mb-4 max-w-2xl">
+                  CONVETER is built with privacy-first principles. Here is how your files are handled:
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-3 rounded-xl border bg-surface-cv" style={{ borderColor: 'var(--border)' }}>
+                    <div className="flex items-center gap-2 mb-1.5 text-xs font-semibold text-primary">
+                      <WifiOff size={14} className="text-success-600" />
+                      <span>1. Private &amp; Local</span>
+                    </div>
+                    <p className="text-2xs text-muted-cv leading-relaxed">
+                      Most tools run 100% locally in your browser. Your files never leave your device and are never uploaded to any cloud server.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-xl border bg-surface-cv" style={{ borderColor: 'var(--border)' }}>
+                    <div className="flex items-center gap-2 mb-1.5 text-xs font-semibold text-primary">
+                      <FileText size={14} className="text-accent" />
+                      <span>2. 93 Dedicated Tools</span>
+                    </div>
+                    <p className="text-2xs text-muted-cv leading-relaxed">
+                      Convert PDFs, images, data formats, audio, and documents with instant drag-and-drop processing and zero queues.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-xl border bg-surface-cv" style={{ borderColor: 'var(--border)' }}>
+                    <div className="flex items-center gap-2 mb-1.5 text-xs font-semibold text-primary">
+                      <Cloud size={14} style={{ color: '#3b82f6' }} />
+                      <span>3. Clear Engine Labels</span>
+                    </div>
+                    <p className="text-2xs text-muted-cv leading-relaxed">
+                      Each tool clearly specifies whether it processes locally or requires a backend service (VITE_BACKEND_URL).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 mt-4 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <Link to="/tools" className="btn-primary btn-sm gap-1.5">
+                    Browse All Tools <ArrowRight size={12} />
+                  </Link>
+                  <button onClick={dismissOnboarding} className="btn-ghost btn-sm text-xs text-muted-cv">
+                    Got it, dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stats row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

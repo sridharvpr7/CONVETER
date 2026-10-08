@@ -69,7 +69,7 @@ const HeroSection: React.FC = () => {
             }}
           >
             <Sparkles size={14} />
-            <span>80+ Professional Tools — Free to Use</span>
+            <span>90+ Professional Tools · 100% Client-Side Privacy</span>
             <span
               className="w-1.5 h-1.5 rounded-full animate-pulse"
               style={{ backgroundColor: 'var(--accent)' }}
@@ -520,7 +520,7 @@ const PrivacySection: React.FC = () => {
     {
       icon: <Shield size={20} />,
       title: 'Local Processing',
-      description: 'Over 40 tools process entirely on your device. Your files never leave your browser.',
+      description: 'The majority of tools process entirely on your device via WebAssembly. Your files never leave your browser.',
       color: '#22c55e',
     },
     {

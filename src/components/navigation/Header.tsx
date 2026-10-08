@@ -32,8 +32,11 @@ export const Header: React.FC = () => {
     user,
     notificationsOpen,
     setNotificationsOpen,
+    notifications,
     setUser,
   } = useAppStore();
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -195,7 +198,7 @@ export const Header: React.FC = () => {
                 aria-label="Notifications"
               >
                 <Bell size={16} />
-                <span className="notif-badge">3</span>
+                {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
               </button>
             </div>
 

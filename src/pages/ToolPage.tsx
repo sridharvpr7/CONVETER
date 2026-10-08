@@ -2,15 +2,17 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import {
-  Upload, ChevronRight, Star, Share2, DownloadCloud,
+  Upload, ChevronRight, Star, DownloadCloud,
   RefreshCw, Info, Shield, Cloud, WifiOff, CheckCircle2,
   AlertCircle, X, Loader2, FileText, Layers, ArrowRight,
-  Sparkles, Settings, Eye, Copy, ExternalLink,
+  Sparkles, Settings, Eye, Copy, Globe, PenLine, Camera,
+  Eraser, Trash2,
 } from 'lucide-react';
 import { getToolBySlug, getRelatedTools, CATEGORY_META } from '@/registry/tools';
 import { useAppStore } from '@/store/app.store';
 import { getToolDispatch, hasProcessor, type OptionField } from '@/lib/toolDispatch';
 import type { ProcessorResult } from '@/lib/processors';
+import { recordHistory } from '@/pages/HistoryPage';
 
 // ────────────────────────────────────────────────
 // Processing states
@@ -29,10 +31,7 @@ interface ProcessingFile {
   progress: number;
   error?: string;
   result?: ProcessorResult;
-  // For multi-result (e.g. split PDF)
   results?: ProcessorResult[];
-  outputUrl?: string;
-  outputName?: string;
 }
 
 // ────────────────────────────────────────────────
@@ -113,6 +112,270 @@ const UploadZone: React.FC<UploadZoneProps> = ({
 };
 
 // ────────────────────────────────────────────────
+// URL Input Panel (for web tools)
+// ────────────────────────────────────────────────
+const UrlInputPanel: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  isRunning: boolean;
+  color: string;
+  hint?: string;
+}> = ({ value, onChange, onSubmit, isRunning, color, hint }) => (
+  <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="space-y-3">
+    <label htmlFor="tool-url-input" className="label">URL</label>
+    <div className="flex gap-2">
+      <div className="flex-1 flex items-center gap-2 input-lg" style={{ padding: 0 }}>
+        <Globe size={16} style={{ color: 'var(--text-muted)', marginLeft: '12px', flexShrink: 0 }} />
+        <input
+          id="tool-url-input"
+          type="url"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="https://example.com"
+          className="flex-1 bg-transparent border-0 outline-none px-2 py-3 text-sm text-primary"
+          required
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={isRunning || !value.trim()}
+        className="btn-primary btn-lg gap-2 flex-shrink-0"
+        style={{ backgroundColor: color, opacity: isRunning ? 0.7 : 1 }}
+      >
+        {isRunning ? <><Loader2 size={16} className="animate-spin" />Processing…</> : <><Sparkles size={16} />Analyze</>}
+      </button>
+    </div>
+    {hint && (
+      <p className="text-xs text-muted-cv flex items-start gap-1.5">
+        <Info size={12} style={{ flexShrink: 0, marginTop: 2 }} />
+        {hint}
+      </p>
+    )}
+  </form>
+);
+
+// ────────────────────────────────────────────────
+// Signature Pad (for sign-pdf)
+// ────────────────────────────────────────────────
+const SignaturePad: React.FC<{
+  onSignature: (dataUrl: string) => void;
+  color: string;
+}> = ({ onSignature, color }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawing = useRef(false);
+  const [hasSignature, setHasSignature] = useState(false);
+
+  const getPos = (e: MouseEvent | TouchEvent, canvas: HTMLCanvasElement) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    if ('touches' in e) {
+      return {
+        x: (e.touches[0].clientX - rect.left) * scaleX,
+        y: (e.touches[0].clientY - rect.top) * scaleY,
+      };
+    }
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  const startDraw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    isDrawing.current = true;
+    const pos = getPos(e.nativeEvent, canvas);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    e.preventDefault();
+  }, []);
+
+  const draw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDrawing.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    const pos = getPos(e.nativeEvent, canvas);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    setHasSignature(true);
+    e.preventDefault();
+  }, []);
+
+  const endDraw = useCallback(() => {
+    isDrawing.current = false;
+    const canvas = canvasRef.current;
+    if (!canvas || !hasSignature) return;
+    onSignature(canvas.toDataURL('image/png'));
+  }, [hasSignature, onSignature]);
+
+  const clear = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+    onSignature('');
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="label">Draw Your Signature</label>
+        <button type="button" onClick={clear} className="btn-secondary btn-sm gap-1.5 text-xs">
+          <Eraser size={12} /> Clear
+        </button>
+      </div>
+      <div className="relative rounded-xl border-2 border-dashed overflow-hidden"
+        style={{ borderColor: color + '40', backgroundColor: '#fafafa', touchAction: 'none' }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={600}
+          height={200}
+          className="w-full"
+          style={{ cursor: 'crosshair', display: 'block' }}
+          onMouseDown={startDraw}
+          onMouseMove={draw}
+          onMouseUp={endDraw}
+          onMouseLeave={endDraw}
+          onTouchStart={startDraw}
+          onTouchMove={draw}
+          onTouchEnd={endDraw}
+        />
+        {!hasSignature && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <p className="text-sm text-muted-cv flex items-center gap-2">
+              <PenLine size={16} /> Sign here
+            </p>
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-muted-cv">Draw your signature above, then upload a PDF and click Process.</p>
+    </div>
+  );
+};
+
+// ────────────────────────────────────────────────
+// Camera Capture (for tools declaring camera input)
+// ────────────────────────────────────────────────
+const CameraCapture: React.FC<{
+  onCapture: (file: File) => void;
+  color: string;
+}> = ({ onCapture, color }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const startCamera = async () => {
+    setError(null);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Camera is not supported on this browser or connection.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      });
+      streamRef.current = stream;
+      setIsOpen(true);
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+      }, 100);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Camera access denied or unavailable.');
+    }
+  };
+
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsOpen(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  const takePhoto = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `camera-scan-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        onCapture(file);
+        stopCamera();
+      }
+    }, 'image/jpeg', 0.95);
+  };
+
+  return (
+    <div className="mb-4">
+      {!isOpen ? (
+        <button
+          type="button"
+          onClick={startCamera}
+          className="btn-secondary btn-md gap-2 w-full justify-center"
+        >
+          <Camera size={16} /> Use Camera to Capture Document / Photo
+        </button>
+      ) : (
+        <div className="p-4 rounded-xl border space-y-3" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+          <div className="relative rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center">
+            <video ref={videoRef} playsInline muted autoPlay className="w-full h-full object-contain" />
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={takePhoto}
+              className="btn-primary btn-md gap-2"
+              style={{ backgroundColor: color }}
+            >
+              <Camera size={16} /> Capture Photo
+            </button>
+            <button
+              type="button"
+              onClick={stopCamera}
+              className="btn-secondary btn-md gap-2"
+            >
+              <X size={16} /> Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs mt-2 flex items-center gap-2">
+          <AlertCircle size={14} className="flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ────────────────────────────────────────────────
 // File Item
 // ────────────────────────────────────────────────
 const FileItem: React.FC<{
@@ -129,8 +392,6 @@ const FileItem: React.FC<{
     cancelled: { icon: <X size={14} />, label: 'Cancelled', stateColor: 'var(--text-muted)' },
   };
   const cfg = stateConfig[pf.state];
-
-  // Multiple results (e.g. split PDF)
   const hasMultiResult = (pf.results?.length ?? 0) > 1;
 
   return (
@@ -148,7 +409,7 @@ const FileItem: React.FC<{
 
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-primary truncate">{pf.file.name}</p>
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           <span className="text-xs text-muted-cv">{(pf.file.size / 1024 / 1024).toFixed(2)} MB</span>
           {pf.result?.meta?.outputSize && (
             <span className="text-xs text-muted-cv">
@@ -156,7 +417,7 @@ const FileItem: React.FC<{
             </span>
           )}
           {pf.result?.meta?.compressionRatio && (
-            <span className="text-xs font-medium text-success-600">
+            <span className="text-xs font-medium" style={{ color: '#22c55e' }}>
               -{pf.result.meta.compressionRatio}%
             </span>
           )}
@@ -185,6 +446,10 @@ const FileItem: React.FC<{
               </button>
             ))}
           </div>
+        )}
+        {/* Error detail */}
+        {pf.state === 'failed' && pf.error && (
+          <p className="text-xs mt-1 leading-relaxed" style={{ color: '#ef4444' }}>{pf.error}</p>
         )}
       </div>
 
@@ -226,13 +491,14 @@ const OptionsPanel: React.FC<{
         const val = values[field.key] ?? field.default;
         return (
           <div key={field.key}>
-            <label className="label">{field.label}</label>
+            {field.type !== 'checkbox' && <label className="label">{field.label}</label>}
 
             {field.type === 'select' && (
               <div className="flex flex-wrap gap-2 mt-1.5">
                 {field.options.map((opt) => (
                   <button
                     key={opt.value}
+                    type="button"
                     onClick={() => onChange(field.key, opt.value)}
                     className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-all duration-150"
                     style={{
@@ -290,6 +556,30 @@ const OptionsPanel: React.FC<{
               />
             )}
 
+            {field.type === 'password' && (
+              <div className="mt-1.5">
+                <label className="label mb-1">{field.label}</label>
+                <input
+                  type="password"
+                  placeholder={field.placeholder}
+                  value={String(val)}
+                  onChange={(e) => onChange(field.key, e.target.value)}
+                  className="input-lg w-full"
+                  autoComplete="new-password"
+                />
+              </div>
+            )}
+
+            {field.type === 'textarea' && (
+              <textarea
+                placeholder={field.placeholder}
+                value={String(val)}
+                rows={field.rows ?? 4}
+                onChange={(e) => onChange(field.key, e.target.value)}
+                className="input-lg mt-1.5 w-full resize-y font-mono text-sm"
+              />
+            )}
+
             {field.type === 'checkbox' && (
               <div className="flex items-center gap-2 mt-1.5">
                 <input
@@ -326,7 +616,7 @@ const OptionsPanel: React.FC<{
 // ────────────────────────────────────────────────
 export const ToolPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
-  const { isFavoriteTool, toggleFavoriteTool } = useAppStore();
+  const { isFavoriteTool, toggleFavoriteTool, addNotification } = useAppStore();
 
   const tool = slug ? getToolBySlug(slug) : undefined;
   const dispatch = slug ? getToolDispatch(slug) : null;
@@ -337,38 +627,25 @@ export const ToolPage: React.FC = () => {
   const [overallState, setOverallState] = useState<ProcessingState>('idle');
   const [activeTab, setActiveTab] = useState<'upload' | 'options' | 'result'>('upload');
   const [textInput, setTextInput] = useState('');
+  const [urlInput, setUrlInput] = useState('');
+  const [signatureDataUrl, setSignatureDataUrl] = useState('');
   const [options, setOptions] = useState<Record<string, unknown>>(() => {
-    // Initialize from field defaults
     const defaults: Record<string, unknown> = {};
     dispatch?.optionFields?.forEach((f) => { defaults[f.key] = f.default; });
     return defaults;
   });
 
-  // Reset options when tool changes
   useEffect(() => {
     const defaults: Record<string, unknown> = {};
     dispatch?.optionFields?.forEach((f) => { defaults[f.key] = f.default; });
     setOptions(defaults);
-  }, [slug]);
-
-  if (!tool) {
-    return (
-      <div className="pt-20 flex flex-col items-center justify-center min-h-screen gap-4">
-        <AlertCircle size={48} style={{ color: 'var(--text-disabled)' }} />
-        <h1 className="text-2xl font-bold text-primary">Tool Not Found</h1>
-        <p className="text-muted-cv">The tool you're looking for doesn't exist.</p>
-        <Link to="/tools" className="btn-primary btn-md">Browse All Tools</Link>
-      </div>
-    );
-  }
-
-  const meta = CATEGORY_META[tool.category];
-  const relatedTools = getRelatedTools(tool);
-  const isFav = isFavoriteTool(tool.slug);
-  const isTextTool = Boolean(dispatch?.textPlaceholder);
-  const canRunEmptyText = ['uuid-generator', 'password-generator', 'lorem-ipsum'].includes(tool.slug);
-  const completedCount = files.filter((f) => f.state === 'completed').length;
-  const failedCount = files.filter((f) => f.state === 'failed').length;
+    setFiles([]);
+    setOverallState('idle');
+    setActiveTab('upload');
+    setTextInput('');
+    setUrlInput('');
+    setSignatureDataUrl('');
+  }, [slug, dispatch?.optionFields]);
 
   const handleFiles = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => ({
@@ -390,24 +667,27 @@ export const ToolPage: React.FC = () => {
     }
   }, []);
 
-  const handleProcess = useCallback(async (inputFiles?: ProcessingFile[]) => {
-    const filesToProcess = inputFiles ?? files;
-    if (filesToProcess.length === 0) return;
-    setIsRunning(true);
-    setOverallState('processing');
-    setActiveTab('result');
-
+  const runProcessor = useCallback(async (
+    inputFiles: ProcessingFile[],
+    extraOpts: Record<string, unknown> = {}
+  ) => {
     if (!dispatch) {
-      const message = 'This tool is listed in the catalog, but this build does not include its processing engine yet.';
-      const failedIds = new Set(filesToProcess.map((f) => f.id));
-      setFiles((prev) => prev.map((f) => failedIds.has(f.id) ? { ...f, state: 'failed', progress: 0, error: message } : f));
-    } else if (dispatch.multiFile) {
-      // Process all files together
-      const fileList = filesToProcess.map((pf) => pf.file);
-      // Show progress on first file
+      const message = 'This tool does not have a processor in this build.';
+      setFiles((prev) => prev.map((f) =>
+        inputFiles.some((pf) => pf.id === f.id)
+          ? { ...f, state: 'failed', progress: 0, error: message }
+          : f
+      ));
+      return;
+    }
+
+    const mergedOpts = { ...options, ...extraOpts };
+
+    if (dispatch.multiFile) {
+      const fileList = inputFiles.map((pf) => pf.file);
       setFiles((prev) => prev.map((f, i) => i === 0 ? { ...f, state: 'processing', progress: 50 } : f));
       try {
-        const result = await dispatch.processor(fileList, options);
+        const result = await dispatch.processor(fileList, mergedOpts);
         const results = Array.isArray(result) ? result : [result];
         setFiles((prev) => prev.map((f, i) => i === 0 ? {
           ...f,
@@ -416,16 +696,46 @@ export const ToolPage: React.FC = () => {
           result: results[0],
           results: results.length > 1 ? results : undefined,
         } : { ...f, state: 'completed', progress: 100 }));
+
+        recordHistory({
+          fileName: fileList.map((f) => f.name).join(', '),
+          toolName: tool!.name,
+          toolSlug: tool!.slug,
+          category: tool!.category,
+          size: (fileList.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(2) + ' MB',
+          resultSize: results[0]?.meta?.outputSize
+            ? ((results[0].meta.outputSize as number) / (1024 * 1024)).toFixed(2) + ' MB'
+            : undefined,
+          status: 'completed',
+          processingType: tool!.processingMode === 'local' ? 'local' : 'cloud',
+        });
+        addNotification({
+          title: `${tool!.name} completed`,
+          desc: `${fileList.length} files processed successfully`,
+          type: 'success',
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         setFiles((prev) => prev.map((f) => ({ ...f, state: 'failed', error: msg })));
+        recordHistory({
+          fileName: fileList.map((f) => f.name).join(', '),
+          toolName: tool!.name,
+          toolSlug: tool!.slug,
+          category: tool!.category,
+          size: (fileList.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(2) + ' MB',
+          status: 'failed',
+          processingType: tool!.processingMode === 'local' ? 'local' : 'cloud',
+        });
+        addNotification({
+          title: `${tool!.name} failed`,
+          desc: msg,
+          type: 'error',
+        });
       }
     } else {
-      // Process each file individually
-      for (const pf of filesToProcess) {
+      for (const pf of inputFiles) {
         setFiles((prev) => prev.map((f) => f.id === pf.id ? { ...f, state: 'processing', progress: 10 } : f));
         try {
-          // Animate to 80% while processing
           const progressInterval = setInterval(() => {
             setFiles((prev) => prev.map((f) => {
               if (f.id === pf.id && f.progress < 80) {
@@ -435,29 +745,70 @@ export const ToolPage: React.FC = () => {
             }));
           }, 200);
 
-          const result = await dispatch.processor([pf.file], options);
+          const result = await dispatch.processor([pf.file], mergedOpts);
           clearInterval(progressInterval);
 
           const results = Array.isArray(result) ? result : null;
+          const primaryRes = Array.isArray(result) ? result[0] : result;
           setFiles((prev) => prev.map((f) => f.id === pf.id ? {
             ...f,
             state: 'completed',
             progress: 100,
-            result: Array.isArray(result) ? result[0] : result,
+            result: primaryRes,
             results: results && results.length > 1 ? results : undefined,
           } : f));
+
+          recordHistory({
+            fileName: pf.file.name,
+            toolName: tool!.name,
+            toolSlug: tool!.slug,
+            category: tool!.category,
+            size: (pf.file.size / (1024 * 1024)).toFixed(2) + ' MB',
+            resultSize: primaryRes?.meta?.outputSize
+              ? ((primaryRes.meta.outputSize as number) / (1024 * 1024)).toFixed(2) + ' MB'
+              : undefined,
+            status: 'completed',
+            processingType: tool!.processingMode === 'local' ? 'local' : 'cloud',
+          });
+          addNotification({
+            title: `${tool!.name} completed`,
+            desc: `${pf.file.name} processed successfully`,
+            type: 'success',
+          });
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Processing failed';
           setFiles((prev) => prev.map((f) => f.id === pf.id ? {
             ...f, state: 'failed', error: msg, progress: 0,
           } : f));
+          recordHistory({
+            fileName: pf.file.name,
+            toolName: tool!.name,
+            toolSlug: tool!.slug,
+            category: tool!.category,
+            size: (pf.file.size / (1024 * 1024)).toFixed(2) + ' MB',
+            status: 'failed',
+            processingType: tool!.processingMode === 'local' ? 'local' : 'cloud',
+          });
+          addNotification({
+            title: `${tool!.name} failed`,
+            desc: msg,
+            type: 'error',
+          });
         }
       }
     }
+  }, [dispatch, options, tool, addNotification]);
 
+  const handleProcess = useCallback(async (inputFiles?: ProcessingFile[]) => {
+    const filesToProcess = inputFiles ?? files;
+    if (filesToProcess.length === 0) return;
+    setIsRunning(true);
+    setOverallState('processing');
+    setActiveTab('result');
+    await runProcessor(filesToProcess);
     setOverallState('completed');
     setIsRunning(false);
-  }, [files, dispatch, options]);
+  }, [files, runProcessor]);
 
   const handleTextProcess = useCallback((event: React.FormEvent) => {
     event.preventDefault();
@@ -465,13 +816,34 @@ export const ToolPage: React.FC = () => {
     const file = new File([textInput], `${slug}-input.txt`, { type: 'text/plain' });
     const processingFile: ProcessingFile = { id: crypto.randomUUID(), file, state: 'idle', progress: 0 };
     setFiles([processingFile]);
-    void handleProcess([processingFile]);
-  }, [slug, textInput, handleProcess]);
+    setIsRunning(true);
+    setOverallState('processing');
+    setActiveTab('result');
+    void runProcessor([processingFile]).then(() => {
+      setOverallState('completed');
+      setIsRunning(false);
+    });
+  }, [slug, textInput, runProcessor]);
+
+  const handleUrlProcess = useCallback(() => {
+    if (!urlInput.trim()) return;
+    const file = new File([''], `url-input.txt`, { type: 'text/plain' });
+    const processingFile: ProcessingFile = { id: crypto.randomUUID(), file, state: 'idle', progress: 0 };
+    setFiles([processingFile]);
+    setIsRunning(true);
+    setOverallState('processing');
+    setActiveTab('result');
+    void runProcessor([processingFile], { _url: urlInput.trim() }).then(() => {
+      setOverallState('completed');
+      setIsRunning(false);
+    });
+  }, [urlInput, runProcessor]);
 
   const handleReset = () => {
     setFiles([]);
     setOverallState('idle');
     setActiveTab('upload');
+    setSignatureDataUrl('');
   };
 
   const handleDownloadAll = () => {
@@ -487,26 +859,78 @@ export const ToolPage: React.FC = () => {
 
   const setOption = (key: string, value: unknown) => setOptions((prev) => ({ ...prev, [key]: value }));
 
-  const acceptMap = useMemo(() => tool.supportedInputFormats?.reduce(
+  const acceptMap = useMemo(() => (tool?.supportedInputFormats ?? []).reduce(
     (acc, fmt) => {
       const mime = fmt === 'pdf' ? 'application/pdf'
         : fmt.startsWith('jp') ? 'image/jpeg'
         : fmt === 'png' ? 'image/png'
         : fmt === 'webp' ? 'image/webp'
         : fmt === 'gif' ? 'image/gif'
+        : fmt === 'tiff' || fmt === 'tif' ? 'image/tiff'
+        : fmt === 'bmp' ? 'image/bmp'
+        : fmt === 'svg' ? 'image/svg+xml'
         : fmt === 'zip' ? 'application/zip'
         : fmt === 'csv' ? 'text/csv'
         : fmt === 'json' ? 'application/json'
         : fmt === 'txt' ? 'text/plain'
+        : fmt === 'md' || fmt === 'markdown' ? 'text/markdown'
+        : fmt === 'html' || fmt === 'htm' ? 'text/html'
+        : fmt === 'xml' ? 'application/xml'
         : fmt === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : fmt === 'doc' ? 'application/msword'
         : fmt === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : fmt === 'xls' ? 'application/vnd.ms-excel'
+        : fmt === 'epub' ? 'application/epub+zip'
+        : fmt === 'mp4' ? 'video/mp4'
+        : fmt === 'mov' ? 'video/quicktime'
+        : fmt === 'mkv' ? 'video/x-matroska'
+        : fmt === 'avi' ? 'video/x-msvideo'
+        : fmt === 'webm' ? 'video/webm'
+        : fmt === 'mp3' ? 'audio/mpeg'
+        : fmt === 'wav' ? 'audio/wav'
+        : fmt === 'aac' ? 'audio/aac'
+        : fmt === 'm4a' ? 'audio/mp4'
+        : fmt === 'flac' ? 'audio/flac'
+        : fmt === 'ogg' ? 'audio/ogg'
         : 'application/octet-stream';
       if (!acc[mime]) acc[mime] = [];
-      acc[mime].push(`.${fmt}`);
+      if (!acc[mime].includes(`.${fmt}`)) acc[mime].push(`.${fmt}`);
       return acc;
     },
     {} as Record<string, string[]>
-  ), [tool.supportedInputFormats]);
+  ), [tool?.supportedInputFormats]);
+
+  // ── Derived variables (computed after all hooks) ──────────────────
+  const toolNotFound = !tool;
+  const meta = tool ? CATEGORY_META[tool.category] : CATEGORY_META['pdf'];
+  // Text tools expose textPlaceholder without inputMode; URL tools use inputMode='url'/'url-or-file'
+  const isTextTool = !!(dispatch?.textPlaceholder && !dispatch?.inputMode);
+  const isUrlTool = dispatch?.inputMode === 'url' || dispatch?.inputMode === 'url-or-file';
+  const isSignatureTool = tool?.slug === 'sign-pdf';
+  const canRunEmptyText = false; // text tools always require input
+  const completedCount = files.filter((f) => f.state === 'completed').length;
+  const failedCount = files.filter((f) => f.state === 'failed').length;
+  const relatedTools = tool ? getRelatedTools(tool) : [];
+
+  // Truthful status label
+  const statusLabel = implemented
+    ? (tool?.processingMode === 'local' ? 'Local processor' : 'Cloud processor (backend required)')
+    : 'Processor not yet available';
+
+  const isFav = tool ? isFavoriteTool(tool.slug) : false;
+
+  if (toolNotFound) {
+    return (
+      <div className="pt-14 min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg)' }}>
+        <div className="text-center">
+          <AlertCircle size={48} style={{ color: 'var(--text-muted)', margin: '0 auto 16px' }} />
+          <h1 className="text-2xl font-bold text-primary mb-2">Tool Not Found</h1>
+          <p className="text-secondary mb-6">The tool &ldquo;{slug}&rdquo; does not exist in the catalog.</p>
+          <Link to="/tools" className="btn-primary btn-md">Browse All Tools</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pt-14 min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
@@ -522,10 +946,16 @@ export const ToolPage: React.FC = () => {
           </Link>
           <ChevronRight size={12} />
           <span className="text-primary font-medium">{tool.name}</span>
-          {implemented && (
+          {implemented && tool.processingMode === 'local' && (
             <span className="ml-2 badge badge-success text-2xs">
               <span className="w-1.5 h-1.5 rounded-full bg-success-500 mr-1 inline-block" />
               Offline Ready
+            </span>
+          )}
+          {implemented && tool.processingMode !== 'local' && (
+            <span className="ml-2 badge badge-neutral text-2xs">
+              <Cloud size={10} className="mr-1 inline-block" />
+              Backend Required
             </span>
           )}
         </div>
@@ -553,13 +983,17 @@ export const ToolPage: React.FC = () => {
                   </div>
                   <p className="text-secondary">{tool.description}</p>
                   <div className="flex items-center gap-3 mt-2 flex-wrap">
-                    {tool.offlineSupported ? (
+                    {implemented && tool.processingMode === 'local' ? (
                       <span className="flex items-center gap-1.5 text-xs font-medium text-success-600">
                         <WifiOff size={12} /> Processes locally on your device
                       </span>
-                    ) : (
+                    ) : implemented ? (
                       <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: '#3b82f6' }}>
-                        <Cloud size={12} /> Processed securely in the cloud
+                        <Cloud size={12} /> Requires backend service
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                        <AlertCircle size={12} /> Processor not available in this build
                       </span>
                     )}
                     {tool.batchSupported && (
@@ -567,23 +1001,16 @@ export const ToolPage: React.FC = () => {
                         <Layers size={12} /> Batch supported
                       </span>
                     )}
-                    {!implemented && (
-                      <span className="flex items-center gap-1.5 text-xs text-muted-cv">
-                        <Sparkles size={12} /> Processing engine not included yet
-                      </span>
-                    )}
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <button onClick={() => toggleFavoriteTool(tool.slug)} className="btn-secondary btn-sm gap-1.5">
+                <button onClick={() => toggleFavoriteTool(tool!.slug)} className="btn-secondary btn-sm gap-1.5">
                   <Star size={13} className={isFav ? 'fill-current text-warning-500' : ''} />
                   {isFav ? 'Saved' : 'Save'}
                 </button>
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(window.location.href);
-                  }}
+                  onClick={() => { navigator.clipboard.writeText(window.location.href); }}
                   className="btn-secondary btn-sm gap-1.5"
                   title="Copy link"
                 >
@@ -604,10 +1031,10 @@ export const ToolPage: React.FC = () => {
                   }`}
                   style={activeTab === tab ? { color: meta.color, borderColor: meta.color } : {}}
                 >
-                  {tab === 'upload' && <Upload size={13} />}
+                  {tab === 'upload' && (isUrlTool ? <Globe size={13} /> : <Upload size={13} />)}
                   {tab === 'options' && <Settings size={13} />}
                   {tab === 'result' && <Eye size={13} />}
-                  {tab === 'upload' ? 'Upload Files' : tab === 'options' ? 'Options' : 'Results'}
+                  {tab === 'upload' ? (isUrlTool ? 'Enter URL' : 'Upload Files') : tab === 'options' ? 'Options' : 'Results'}
                   {tab === 'result' && overallState === 'completed' && (
                     <span className="w-4 h-4 flex items-center justify-center rounded-full text-white text-2xs ml-1"
                       style={{ backgroundColor: '#22c55e', fontSize: '10px' }}
@@ -626,38 +1053,93 @@ export const ToolPage: React.FC = () => {
               ))}
             </div>
 
-            {/* Upload tab */}
+            {/* Upload / Input tab */}
             {activeTab === 'upload' && (
               <div className="space-y-4">
-                {isTextTool ? (
-                  <form onSubmit={handleTextProcess} className="space-y-3">
-                    <label htmlFor="tool-text-input" className="label">Input</label>
-                    <textarea id="tool-text-input" value={textInput} onChange={(e) => setTextInput(e.target.value)} placeholder={dispatch?.textPlaceholder} rows={8} className="input-lg w-full resize-y font-mono text-sm" />
-                    <div className="flex items-center gap-3">
-                      <button type="submit" disabled={isRunning || (!textInput.trim() && !canRunEmptyText)} className="btn-primary btn-lg gap-2" style={{ backgroundColor: meta.color, opacity: isRunning ? 0.7 : 1 }}>
-                        {isRunning ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Sparkles size={16} />{tool.name}</>}
-                      </button>
-                      {dispatch?.optionFields && dispatch.optionFields.length > 0 && <button type="button" onClick={() => setActiveTab('options')} className="btn-secondary btn-md gap-1.5"><Settings size={14} />Options</button>}
-                    </div>
-                  </form>
-                ) : (
-                  <UploadZone
-                    onFiles={handleFiles}
-                    multiple={tool.batchSupported || dispatch?.multiFile}
-                    supportedFormats={tool.supportedInputFormats}
+                {/* URL input mode */}
+                {isUrlTool && (
+                  <UrlInputPanel
+                    value={urlInput}
+                    onChange={setUrlInput}
+                    onSubmit={handleUrlProcess}
+                    isRunning={isRunning}
                     color={meta.color}
-                    accept={acceptMap}
+                    hint={dispatch?.optionsHint}
                   />
                 )}
 
-                {!isTextTool && files.length > 0 && (
+                {/* Text input mode */}
+                {isTextTool && (
+                  <form onSubmit={handleTextProcess} className="space-y-3">
+                    <label htmlFor="tool-text-input" className="label">Input</label>
+                    <textarea
+                      id="tool-text-input"
+                      value={textInput}
+                      onChange={(e) => setTextInput(e.target.value)}
+                      placeholder={dispatch?.textPlaceholder}
+                      rows={8}
+                      className="input-lg w-full resize-y font-mono text-sm"
+                    />
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="submit"
+                        disabled={isRunning || (!textInput.trim() && !canRunEmptyText)}
+                        className="btn-primary btn-lg gap-2"
+                        style={{ backgroundColor: meta.color, opacity: isRunning ? 0.7 : 1 }}
+                      >
+                        {isRunning ? <><Loader2 size={16} className="animate-spin" />Processing…</> : <><Sparkles size={16} />{tool.name}</>}
+                      </button>
+                      {dispatch?.optionFields && dispatch.optionFields.length > 0 && (
+                        <button type="button" onClick={() => setActiveTab('options')} className="btn-secondary btn-md gap-1.5">
+                          <Settings size={14} />Options
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                )}
+
+                {/* File upload mode (default, also used by signature tools) */}
+                {!isTextTool && !isUrlTool && (
+                  <>
+                    {/* Signature pad (for sign-pdf) */}
+                    {isSignatureTool && (
+                      <div className="mb-4">
+                        <SignaturePad
+                          color={meta.color}
+                          onSignature={(dataUrl) => {
+                            setSignatureDataUrl(dataUrl);
+                            setOption('signatureDataUrl', dataUrl);
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {tool.inputTypes?.includes('camera') && (
+                      <CameraCapture
+                        onCapture={(capturedFile) => handleFiles([capturedFile])}
+                        color={meta.color}
+                      />
+                    )}
+
+                    <UploadZone
+                      onFiles={handleFiles}
+                      multiple={tool.batchSupported || dispatch?.multiFile}
+                      supportedFormats={tool.supportedInputFormats}
+                      color={meta.color}
+                      accept={acceptMap}
+                    />
+                  </>
+                )}
+
+                {/* File list */}
+                {!isTextTool && !isUrlTool && files.length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-medium text-primary">
                         {files.length} file{files.length !== 1 ? 's' : ''} selected
                       </p>
-                      <button onClick={() => setFiles([])} className="text-xs text-muted-cv hover:text-primary transition-colors">
-                        Clear all
+                      <button onClick={() => setFiles([])} className="text-xs text-muted-cv hover:text-primary transition-colors flex items-center gap-1">
+                        <Trash2 size={11} /> Clear all
                       </button>
                     </div>
                     {files.map((pf) => (
@@ -667,7 +1149,7 @@ export const ToolPage: React.FC = () => {
                     <div className="flex items-center gap-3 pt-2">
                       <button
                         onClick={() => handleProcess()}
-                        disabled={isRunning || files.length === 0}
+                        disabled={isRunning || files.length === 0 || (isSignatureTool && !signatureDataUrl)}
                         className="btn-primary btn-lg gap-2"
                         style={{
                           backgroundColor: meta.color,
@@ -676,11 +1158,16 @@ export const ToolPage: React.FC = () => {
                         }}
                       >
                         {isRunning ? (
-                          <><Loader2 size={16} className="animate-spin" />Processing...</>
+                          <><Loader2 size={16} className="animate-spin" />Processing…</>
                         ) : (
                           <><Sparkles size={16} />{tool.name}</>
                         )}
                       </button>
+                      {isSignatureTool && !signatureDataUrl && (
+                        <p className="text-xs text-muted-cv flex items-center gap-1">
+                          <PenLine size={12} /> Draw your signature above first
+                        </p>
+                      )}
                       {dispatch?.optionFields && dispatch.optionFields.length > 0 && !isRunning && (
                         <button
                           onClick={() => setActiveTab('options')}
@@ -690,6 +1177,22 @@ export const ToolPage: React.FC = () => {
                           Options
                         </button>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Not implemented notice */}
+                {!implemented && (
+                  <div className="flex items-start gap-3 p-4 rounded-xl border mt-4"
+                    style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+                  >
+                    <AlertCircle size={16} style={{ color: '#f59e0b', flexShrink: 0, marginTop: 2 }} />
+                    <div>
+                      <p className="text-sm font-medium text-primary mb-1">Processor not available</p>
+                      <p className="text-xs text-muted-cv leading-relaxed">
+                        This tool is listed in the catalog but does not have a connected processor in this build.
+                        No simulated results will be returned.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -718,10 +1221,14 @@ export const ToolPage: React.FC = () => {
                     </p>
                   </div>
                 )}
-                {files.length > 0 && (
+                {(files.length > 0 || urlInput) && (
                   <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
                     <button
-                      onClick={() => { setActiveTab('upload'); handleProcess(); }}
+                      onClick={() => {
+                        setActiveTab('upload');
+                        if (isUrlTool) { handleUrlProcess(); }
+                        else { void handleProcess(); }
+                      }}
                       className="btn-primary btn-md gap-2"
                       style={{ backgroundColor: meta.color }}
                     >
@@ -745,10 +1252,12 @@ export const ToolPage: React.FC = () => {
                     </div>
                     <div className="text-center">
                       <p className="font-medium text-primary">No results yet</p>
-                      <p className="text-sm text-muted-cv mt-1">Upload files and run the tool to see results here</p>
+                      <p className="text-sm text-muted-cv mt-1">
+                        {isUrlTool ? 'Enter a URL and click Analyze' : 'Upload files and run the tool'} to see results here
+                      </p>
                     </div>
                     <button onClick={() => setActiveTab('upload')} className="btn-primary btn-md" style={{ backgroundColor: meta.color }}>
-                      <Upload size={15} /> Upload Files
+                      {isUrlTool ? <><Globe size={15} /> Enter URL</> : <><Upload size={15} /> Upload Files</>}
                     </button>
                   </div>
                 )}
@@ -767,7 +1276,7 @@ export const ToolPage: React.FC = () => {
                           <div>
                             <p className="text-sm font-semibold text-primary">
                               {completedCount} file{completedCount !== 1 ? 's' : ''} processed
-                              {failedCount > 0 && <span className="text-error-600 ml-2">{failedCount} failed</span>}
+                              {failedCount > 0 && <span className="ml-2" style={{ color: '#ef4444' }}>{failedCount} failed</span>}
                             </p>
                           </div>
                         </div>
@@ -801,25 +1310,25 @@ export const ToolPage: React.FC = () => {
             {/* Privacy indicator */}
             <div className="p-4 rounded-xl border"
               style={{
-                backgroundColor: tool.offlineSupported ? '#22c55e08' : '#3b82f608',
-                borderColor: tool.offlineSupported ? '#22c55e30' : '#3b82f630',
+                backgroundColor: implemented && tool.processingMode === 'local' ? '#22c55e08' : '#3b82f608',
+                borderColor: implemented && tool.processingMode === 'local' ? '#22c55e30' : '#3b82f630',
               }}
             >
               <div className="flex items-start gap-3">
-                {tool.offlineSupported
+                {implemented && tool.processingMode === 'local'
                   ? <WifiOff size={16} style={{ color: '#22c55e', flexShrink: 0, marginTop: 2 }} />
                   : <Shield size={16} style={{ color: '#3b82f6', flexShrink: 0, marginTop: 2 }} />
                 }
                 <div>
                   <p className="text-xs font-semibold mb-1"
-                    style={{ color: tool.offlineSupported ? '#22c55e' : '#3b82f6' }}
+                    style={{ color: implemented && tool.processingMode === 'local' ? '#22c55e' : '#3b82f6' }}
                   >
-                    {tool.offlineSupported ? 'LOCAL PROCESSING' : 'SECURE CLOUD'}
+                    {implemented && tool.processingMode === 'local' ? 'LOCAL PROCESSING' : 'CLOUD / BACKEND'}
                   </p>
                   <p className="text-xs text-muted-cv leading-relaxed">
-                    {tool.offlineSupported
+                    {implemented && tool.processingMode === 'local'
                       ? 'Your file stays on this device. Nothing is uploaded.'
-                      : 'Temporarily uploaded, auto-deleted after processing.'}
+                      : 'Processed via the configured backend service. Requires VITE_BACKEND_URL.'}
                   </p>
                 </div>
               </div>
@@ -831,15 +1340,15 @@ export const ToolPage: React.FC = () => {
               <div className="space-y-2">
                 {[
                   { label: 'Category', value: meta.name },
-                  { label: 'Processing', value: tool.offlineSupported ? 'Local' : 'Cloud' },
+                  { label: 'Processing', value: tool.processingMode === 'local' ? 'Local (browser)' : 'Backend service' },
                   { label: 'Batch', value: tool.batchSupported ? 'Supported' : 'Not supported' },
                   { label: 'Plan', value: tool.premium ? 'Premium' : 'Free' },
                   { label: 'Status', value: tool.status === 'stable' ? 'Stable' : tool.status === 'beta' ? 'Beta' : 'Coming soon' },
-                  { label: 'Engine', value: implemented ? 'Browser processor' : 'Not available in this build' },
+                  { label: 'Engine', value: statusLabel },
                 ].map((item) => (
-                  <div key={item.label} className="flex items-center justify-between">
-                    <span className="text-xs text-muted-cv">{item.label}</span>
-                    <span className="text-xs font-medium text-primary">{item.value}</span>
+                  <div key={item.label} className="flex items-start justify-between gap-2">
+                    <span className="text-xs text-muted-cv flex-shrink-0">{item.label}</span>
+                    <span className="text-xs font-medium text-primary text-right">{item.value}</span>
                   </div>
                 ))}
               </div>

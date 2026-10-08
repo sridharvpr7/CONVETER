@@ -1,33 +1,61 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  FileText, Clock, Star, Workflow, HardDrive, BarChart3,
+  FileText, Clock, Star, Workflow, HardDrive,
   ArrowRight, Plus, Zap, WifiOff, Cloud,
 } from 'lucide-react';
 import { getPopularTools, CATEGORY_META } from '@/registry/tools';
+import type { HistoryItem } from '@/pages/HistoryPage';
 
-const RECENT_FILES = [
-  { name: 'Annual_Report_2024.pdf', tool: 'Compress PDF', date: '2h ago', size: '4.2 MB → 1.1 MB', status: 'completed', type: 'pdf' },
-  { name: 'product_photos.zip', tool: 'Image Compressor', date: '5h ago', size: '82 MB → 34 MB', status: 'completed', type: 'image' },
-  { name: 'Invoice_Nov2024.docx', tool: 'Word to PDF', date: 'Yesterday', size: '128 KB', status: 'completed', type: 'document' },
-  { name: 'customer_data.csv', tool: 'CSV to Excel', date: '2 days ago', size: '2.8 MB', status: 'completed', type: 'data' },
-];
-
-const SAVED_WORKFLOWS = [
-  { name: 'Image → Compress → PDF', steps: 3, lastRun: '1 day ago' },
-  { name: 'PDF → OCR → Translate', steps: 3, lastRun: '3 days ago' },
-  { name: 'Video → Compress → MP4', steps: 2, lastRun: '1 week ago' },
-];
-
-const STAT_CARDS = [
-  { label: 'Files Processed', value: '142', change: '+12 this week', icon: <FileText size={18} />, color: '#5b6af8' },
-  { label: 'Storage Used', value: '1.2 GB', change: 'of 5 GB', icon: <HardDrive size={18} />, color: '#10b981' },
-  { label: 'Offline Operations', value: '98', change: '69% of total', icon: <WifiOff size={18} />, color: '#22c55e' },
-  { label: 'Cloud Operations', value: '44', change: '31% of total', icon: <Cloud size={18} />, color: '#3b82f6' },
-];
+interface SavedWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  steps: { id: string; name: string; toolSlug: string; color: string }[];
+  lastRun?: string;
+  runCount: number;
+}
 
 export const DashboardPage: React.FC = () => {
   const favoriteTools = getPopularTools(6);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [workflows, setWorkflows] = useState<SavedWorkflow[]>([]);
+
+  useEffect(() => {
+    try {
+      const savedHistory: HistoryItem[] = JSON.parse(localStorage.getItem('conveter_history') ?? '[]');
+      setHistory(savedHistory);
+    } catch {
+      setHistory([]);
+    }
+
+    try {
+      const savedWfs: SavedWorkflow[] = JSON.parse(localStorage.getItem('conveter_workflows') ?? '[]');
+      setWorkflows(savedWfs);
+    } catch {
+      setWorkflows([]);
+    }
+  }, []);
+
+  const offlineCount = history.filter((h) => h.processingType === 'local').length;
+  const cloudCount = history.filter((h) => h.processingType === 'cloud').length;
+  const totalCount = history.length;
+
+  const todayStr = new Date().toLocaleDateString();
+  const todayCount = history.filter((h) => {
+    try {
+      return new Date(h.date).toLocaleDateString() === todayStr;
+    } catch {
+      return false;
+    }
+  }).length;
+
+  const statCards = [
+    { label: 'Files Processed', value: String(totalCount), change: `${todayCount} today`, icon: <FileText size={18} />, color: '#5b6af8' },
+    { label: 'Saved Workflows', value: String(workflows.length), change: 'Custom pipelines', icon: <Workflow size={18} />, color: '#10b981' },
+    { label: 'Offline Operations', value: String(offlineCount), change: totalCount > 0 ? `${Math.round((offlineCount / totalCount) * 100)}% of total` : '0%', icon: <WifiOff size={18} />, color: '#22c55e' },
+    { label: 'Cloud Operations', value: String(cloudCount), change: totalCount > 0 ? `${Math.round((cloudCount / totalCount) * 100)}% of total` : '0%', icon: <Cloud size={18} />, color: '#3b82f6' },
+  ];
 
   return (
     <div className="pt-20 pb-16" style={{ backgroundColor: 'var(--bg)' }}>
@@ -36,7 +64,7 @@ export const DashboardPage: React.FC = () => {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-primary">Dashboard</h1>
-            <p className="text-sm text-muted-cv mt-1">Welcome back! Here's what's happening.</p>
+            <p className="text-sm text-muted-cv mt-1">Real-time overview of your conversions and tools.</p>
           </div>
           <Link to="/tools" className="btn-primary btn-md gap-2">
             <Plus size={16} />
@@ -46,7 +74,7 @@ export const DashboardPage: React.FC = () => {
 
         {/* Stats row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {STAT_CARDS.map((card) => (
+          {statCards.map((card) => (
             <div
               key={card.label}
               className="p-4 rounded-xl border"
@@ -70,43 +98,67 @@ export const DashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Recent files */}
           <div
-            className="lg:col-span-2 rounded-xl border"
+            className="lg:col-span-2 rounded-xl border flex flex-col"
             style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-2">
                 <Clock size={16} style={{ color: 'var(--text-muted)' }} />
-                <h2 className="text-sm font-semibold text-primary">Recent Files</h2>
+                <h2 className="text-sm font-semibold text-primary">Recent Conversions</h2>
               </div>
               <Link to="/history" className="text-xs text-accent hover:underline">View all</Link>
             </div>
-            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {RECENT_FILES.map((file, idx) => {
-                const color = { pdf: '#ef4444', image: '#f59e0b', document: '#3b82f6', data: '#10b981' }[file.type] || '#5b6af8';
-                return (
-                  <div key={idx} className="flex items-center gap-3 px-5 py-3">
-                    <div
-                      className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0"
-                      style={{ backgroundColor: color + '15', color }}
-                    >
-                      <FileText size={14} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-primary truncate">{file.name}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-muted-cv">{file.tool}</span>
-                        <span className="text-xs text-muted-cv">·</span>
-                        <span className="text-xs text-muted-cv">{file.size}</span>
+            {history.length === 0 ? (
+              <div className="p-8 text-center flex-1 flex flex-col items-center justify-center gap-3">
+                <FileText size={32} style={{ color: 'var(--text-disabled)' }} />
+                <p className="text-sm font-medium text-primary">No conversions yet</p>
+                <p className="text-xs text-muted-cv max-w-sm">
+                  Run any of the 93 tools in CONVETER to see your processed files and results here.
+                </p>
+                <Link to="/tools" className="btn-primary btn-sm mt-2">
+                  Explore Tools
+                </Link>
+              </div>
+            ) : (
+              <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                {history.slice(0, 5).map((file) => {
+                  const meta = CATEGORY_META[file.category as keyof typeof CATEGORY_META] || { color: '#5b6af8' };
+                  return (
+                    <div key={file.id} className="flex items-center gap-3 px-5 py-3">
+                      <div
+                        className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0"
+                        style={{ backgroundColor: meta.color + '15', color: meta.color }}
+                      >
+                        <FileText size={14} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <Link to={`/tool/${file.toolSlug}`} className="text-sm font-medium text-primary hover:underline truncate block">
+                          {file.fileName}
+                        </Link>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-muted-cv">{file.toolName}</span>
+                          <span className="text-xs text-muted-cv">·</span>
+                          <span className="text-xs text-muted-cv">{file.size}</span>
+                          {file.resultSize && (
+                            <>
+                              <span className="text-xs text-muted-cv">→</span>
+                              <span className="text-xs font-medium text-success-600">{file.resultSize}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-xs text-muted-cv">{file.date}</span>
+                        <span
+                          className={`w-2 h-2 rounded-full inline-block ${file.status === 'completed' ? 'bg-success-500' : 'bg-red-500'}`}
+                          title={file.status}
+                        />
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs text-muted-cv">{file.date}</span>
-                      <span className="w-2 h-2 rounded-full bg-success-500 inline-block" />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Right column */}
@@ -124,21 +176,27 @@ export const DashboardPage: React.FC = () => {
                 <Link to="/workflows" className="text-xs text-accent hover:underline">Manage</Link>
               </div>
               <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                {SAVED_WORKFLOWS.map((wf, idx) => (
-                  <div key={idx} className="flex items-center justify-between px-5 py-3">
-                    <div>
-                      <p className="text-xs font-medium text-primary">{wf.name}</p>
-                      <p className="text-xs text-muted-cv mt-0.5">{wf.steps} steps · {wf.lastRun}</p>
-                    </div>
-                    <button className="btn-ghost btn-sm">
-                      <ArrowRight size={12} />
-                    </button>
+                {workflows.length === 0 ? (
+                  <div className="p-4 text-center">
+                    <p className="text-xs text-muted-cv">No custom workflows saved yet.</p>
                   </div>
-                ))}
+                ) : (
+                  workflows.slice(0, 3).map((wf) => (
+                    <div key={wf.id} className="flex items-center justify-between px-5 py-3">
+                      <div>
+                        <p className="text-xs font-medium text-primary">{wf.name}</p>
+                        <p className="text-xs text-muted-cv mt-0.5">{wf.steps.length} steps · {wf.lastRun || 'Not run yet'}</p>
+                      </div>
+                      <Link to="/workflows" className="btn-ghost btn-sm">
+                        <ArrowRight size={12} />
+                      </Link>
+                    </div>
+                  ))
+                )}
                 <div className="px-5 py-3">
                   <Link to="/workflows" className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--accent)' }}>
                     <Plus size={12} />
-                    Create workflow
+                    {workflows.length === 0 ? 'Create first workflow' : 'Create workflow'}
                   </Link>
                 </div>
               </div>
@@ -182,7 +240,7 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Premium upgrade card */}
+            {/* Plan status card */}
             <div
               className="p-4 rounded-xl border"
               style={{
@@ -199,11 +257,14 @@ export const DashboardPage: React.FC = () => {
               </p>
               <div className="mb-3">
                 <div className="flex items-center justify-between text-xs text-muted-cv mb-1">
-                  <span>Daily jobs</span>
-                  <span>4 / 5 used</span>
+                  <span>Daily conversions</span>
+                  <span>{todayCount} / 5 used today</span>
                 </div>
                 <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: '80%', backgroundColor: '#f59e0b' }} />
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${Math.min(100, (todayCount / 5) * 100)}%`, backgroundColor: '#f59e0b' }}
+                  />
                 </div>
               </div>
               <Link to="/pricing" className="btn-primary btn-sm w-full justify-center" style={{ backgroundColor: 'var(--accent)' }}>

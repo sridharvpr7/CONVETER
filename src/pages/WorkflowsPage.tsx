@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
-  Plus, Play, Trash2, Copy, Edit3, ArrowRight, ChevronRight,
-  Workflow, Sparkles, Clock, Star,
+  Plus, Play, Trash2, ArrowRight, ChevronRight,
+  Workflow, Sparkles, Clock, Star, CheckCircle2,
 } from 'lucide-react';
 
 interface WorkflowStep {
@@ -23,70 +23,168 @@ interface SavedWorkflow {
   createdAt: string;
 }
 
-const DEMO_WORKFLOWS: SavedWorkflow[] = [
-  {
-    id: '1',
-    name: 'Images to Compressed PDF',
-    description: 'Convert JPG images to PDF, then compress for sharing',
-    steps: [
-      { id: 's1', name: 'JPG to PDF', toolSlug: 'jpg-to-pdf', color: '#ef4444' },
-      { id: 's2', name: 'Compress PDF', toolSlug: 'compress-pdf', color: '#f59e0b' },
-    ],
-    lastRun: '2 hours ago',
-    runCount: 12,
-    favorite: true,
-    createdAt: '2026-10-01',
-  },
-  {
-    id: '2',
-    name: 'PDF OCR to Text',
-    description: 'Extract text from scanned PDFs using OCR',
-    steps: [
-      { id: 's1', name: 'OCR PDF', toolSlug: 'ocr-pdf', color: '#ef4444' },
-      { id: 's2', name: 'PDF to Text', toolSlug: 'pdf-to-text', color: '#3b82f6' },
-    ],
-    lastRun: '1 day ago',
-    runCount: 5,
-    favorite: false,
-    createdAt: '2026-10-03',
-  },
-  {
-    id: '3',
-    name: 'Bulk Image Optimizer',
-    description: 'Resize and compress images in batch',
-    steps: [
-      { id: 's1', name: 'Image Resize', toolSlug: 'image-resize', color: '#f59e0b' },
-      { id: 's2', name: 'Image Compressor', toolSlug: 'image-compressor', color: '#f59e0b' },
-    ],
-    lastRun: '3 days ago',
-    runCount: 28,
-    favorite: true,
-    createdAt: '2026-09-28',
-  },
-];
+const WORKFLOWS_KEY = 'conveter_workflows';
+function loadWorkflows(): SavedWorkflow[] {
+  try { return JSON.parse(localStorage.getItem(WORKFLOWS_KEY) ?? '[]'); } catch { return []; }
+}
+function saveWorkflows(wfs: SavedWorkflow[]): void {
+  try { localStorage.setItem(WORKFLOWS_KEY, JSON.stringify(wfs)); } catch { /* ignore */ }
+}
 
 const WORKFLOW_TEMPLATES = [
-  { name: 'Scan → OCR → PDF', description: 'Camera → Edge detect → OCR → PDF', icon: '📄', steps: 4 },
-  { name: 'Video → Compress → MP4', description: 'Trim video and compress for web', icon: '🎬', steps: 3 },
-  { name: 'CSV → Analyze → Excel', description: 'Clean CSV data and export to Excel', icon: '📊', steps: 3 },
-  { name: 'Word → PDF → Watermark', description: 'Convert Word and add watermark', icon: '📝', steps: 3 },
+  {
+    name: 'Scan → OCR → PDF',
+    description: 'Document scanner → OCR recognition → Searchable PDF',
+    icon: '📄',
+    steps: [
+      { id: '1', name: 'Document Scanner', toolSlug: 'document-scanner', color: '#10b981' },
+      { id: '2', name: 'OCR PDF', toolSlug: 'ocr-pdf', color: '#5b6af8' },
+      { id: '3', name: 'Compress PDF', toolSlug: 'compress-pdf', color: '#ef4444' },
+    ],
+  },
+  {
+    name: 'Video → Compress → Audio',
+    description: 'Video Compressor → Extract audio to WAV',
+    icon: '🎬',
+    steps: [
+      { id: '1', name: 'Video Compressor', toolSlug: 'video-compressor', color: '#8b5cf6' },
+      { id: '2', name: 'Video to Audio', toolSlug: 'video-to-audio', color: '#ec4899' },
+    ],
+  },
+  {
+    name: 'CSV → Analyze → Excel',
+    description: 'Clean tabular data and export to Excel workbook',
+    icon: '📊',
+    steps: [
+      { id: '1', name: 'CSV to Excel', toolSlug: 'csv-to-excel', color: '#10b981' },
+      { id: '2', name: 'JSON to CSV', toolSlug: 'json-to-csv', color: '#3b82f6' },
+    ],
+  },
+  {
+    name: 'Word → PDF → Protect',
+    description: 'Convert DOCX to PDF, then protect with AES password',
+    icon: '📝',
+    steps: [
+      { id: '1', name: 'Word to PDF', toolSlug: 'word-to-pdf', color: '#3b82f6' },
+      { id: '2', name: 'Protect PDF', toolSlug: 'protect-pdf', color: '#ef4444' },
+    ],
+  },
 ];
 
 export const WorkflowsPage: React.FC = () => {
-  const [workflows, setWorkflows] = useState(DEMO_WORKFLOWS);
+  const navigate = useNavigate();
+  const [workflows, setWorkflows] = useState<SavedWorkflow[]>(() => loadWorkflows());
   const [activeTab, setActiveTab] = useState<'my' | 'templates'>('my');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const toggleFav = (id: string) =>
-    setWorkflows((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, favorite: !w.favorite } : w))
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const toggleFav = (id: string) => {
+    const updated = workflows.map((w) => (w.id === id ? { ...w, favorite: !w.favorite } : w));
+    setWorkflows(updated);
+    saveWorkflows(updated);
+  };
+
+  const deleteWorkflow = (id: string) => {
+    const updated = workflows.filter((w) => w.id !== id);
+    setWorkflows(updated);
+    saveWorkflows(updated);
+    showToast('Workflow deleted.');
+  };
+
+  const applyTemplate = (tmpl: (typeof WORKFLOW_TEMPLATES)[0]) => {
+    const newWorkflow: SavedWorkflow = {
+      id: crypto.randomUUID(),
+      name: tmpl.name,
+      description: tmpl.description,
+      steps: tmpl.steps,
+      runCount: 0,
+      favorite: false,
+      createdAt: new Date().toLocaleDateString(),
+    };
+    const updated = [newWorkflow, ...workflows];
+    setWorkflows(updated);
+    saveWorkflows(updated);
+    setActiveTab('my');
+    showToast(`Added "${tmpl.name}" to My Workflows.`);
+  };
+
+  const handleAiBuild = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiPrompt.trim()) return;
+
+    // Create a tailored workflow based on the user's prompt
+    const prompt = aiPrompt.toLowerCase();
+    const steps: WorkflowStep[] = [];
+
+    if (prompt.includes('scan') || prompt.includes('camera')) {
+      steps.push({ id: '1', name: 'Document Scanner', toolSlug: 'document-scanner', color: '#10b981' });
+    }
+    if (prompt.includes('ocr') || prompt.includes('text')) {
+      steps.push({ id: '2', name: 'OCR PDF', toolSlug: 'ocr-pdf', color: '#5b6af8' });
+    }
+    if (prompt.includes('word') || prompt.includes('docx')) {
+      steps.push({ id: '3', name: 'Word to PDF', toolSlug: 'word-to-pdf', color: '#3b82f6' });
+    }
+    if (prompt.includes('compress') || prompt.includes('size')) {
+      steps.push({ id: '4', name: 'Compress PDF', toolSlug: 'compress-pdf', color: '#ef4444' });
+    }
+    if (prompt.includes('protect') || prompt.includes('password')) {
+      steps.push({ id: '5', name: 'Protect PDF', toolSlug: 'protect-pdf', color: '#dc2626' });
+    }
+
+    if (steps.length === 0) {
+      steps.push(
+        { id: '1', name: 'Convert', toolSlug: 'image-converter', color: '#5b6af8' },
+        { id: '2', name: 'Compress', toolSlug: 'image-compressor', color: '#10b981' }
+      );
+    }
+
+    const newWorkflow: SavedWorkflow = {
+      id: crypto.randomUUID(),
+      name: aiPrompt.slice(0, 30) + (aiPrompt.length > 30 ? '…' : ''),
+      description: `Generated for: "${aiPrompt}"`,
+      steps,
+      runCount: 0,
+      favorite: true,
+      createdAt: new Date().toLocaleDateString(),
+    };
+
+    const updated = [newWorkflow, ...workflows];
+    setWorkflows(updated);
+    saveWorkflows(updated);
+    setAiPrompt('');
+    setActiveTab('my');
+    showToast(`Created workflow with ${steps.length} steps!`);
+  };
+
+  const runWorkflow = (wf: SavedWorkflow) => {
+    // Record run count and redirect to step 1
+    const updated = workflows.map((w) =>
+      w.id === wf.id
+        ? { ...w, runCount: w.runCount + 1, lastRun: new Date().toLocaleDateString() }
+        : w
     );
-
-  const deleteWorkflow = (id: string) =>
-    setWorkflows((prev) => prev.filter((w) => w.id !== id));
+    setWorkflows(updated);
+    saveWorkflows(updated);
+    const firstSlug = wf.steps[0]?.toolSlug || 'merge-pdf';
+    navigate(`/tool/${firstSlug}`);
+  };
 
   return (
     <div className="pt-20 pb-16" style={{ backgroundColor: 'var(--bg)' }}>
       <div className="container-app">
+        {toastMessage && (
+          <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 p-4 rounded-xl shadow-cv-lg text-white bg-success-600 text-sm animate-slide-up">
+            <CheckCircle2 size={16} />
+            {toastMessage}
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -95,7 +193,10 @@ export const WorkflowsPage: React.FC = () => {
               Automate multi-step file processing pipelines
             </p>
           </div>
-          <button className="btn-primary btn-md gap-2">
+          <button
+            onClick={() => setActiveTab('templates')}
+            className="btn-primary btn-md gap-2"
+          >
             <Plus size={16} />
             New Workflow
           </button>
@@ -118,19 +219,21 @@ export const WorkflowsPage: React.FC = () => {
           <div className="flex-1">
             <p className="text-sm font-semibold text-primary mb-1">AI Workflow Builder</p>
             <p className="text-xs text-secondary mb-3">
-              Describe what you want to do and AI will build the workflow for you.
+              Describe what you want to do and we will generate the multi-tool pipeline for you.
             </p>
-            <div className="flex gap-2">
+            <form onSubmit={handleAiBuild} className="flex gap-2">
               <input
                 type="text"
-                placeholder='e.g. "Convert scanned PDF to editable Word document"'
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                placeholder='e.g. "Scan document with camera, run OCR, and compress to PDF"'
                 className="input flex-1 h-8 text-xs"
               />
-              <button className="btn-primary btn-sm px-4">
+              <button type="submit" disabled={!aiPrompt.trim()} className="btn-primary btn-sm px-4">
                 <Sparkles size={13} />
                 Build
               </button>
-            </div>
+            </form>
           </div>
         </div>
 
@@ -185,14 +288,6 @@ export const WorkflowsPage: React.FC = () => {
                     key={wf.id}
                     className="group flex flex-col gap-4 p-4 rounded-xl border transition-all duration-200"
                     style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = 'var(--accent)';
-                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(74,74,232,0.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = 'var(--border)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
                   >
                     {/* Header */}
                     <div className="flex items-start justify-between">
@@ -202,7 +297,7 @@ export const WorkflowsPage: React.FC = () => {
                       </div>
                       <button
                         onClick={() => toggleFav(wf.id)}
-                        className="w-7 h-7 flex items-center justify-center rounded-md flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-hover-cv"
+                        className="w-7 h-7 flex items-center justify-center rounded-md flex-shrink-0 transition-opacity hover:bg-hover-cv"
                       >
                         <Star
                           size={13}
@@ -215,8 +310,9 @@ export const WorkflowsPage: React.FC = () => {
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {wf.steps.map((step, i) => (
                         <React.Fragment key={step.id}>
-                          <span
-                            className="text-2xs px-2 py-1 rounded font-medium"
+                          <Link
+                            to={`/tool/${step.toolSlug}`}
+                            className="text-2xs px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity"
                             style={{
                               backgroundColor: step.color + '15',
                               color: step.color,
@@ -224,7 +320,7 @@ export const WorkflowsPage: React.FC = () => {
                             }}
                           >
                             {step.name}
-                          </span>
+                          </Link>
                           {i < wf.steps.length - 1 && (
                             <ChevronRight size={12} style={{ color: 'var(--text-disabled)' }} />
                           )}
@@ -233,7 +329,7 @@ export const WorkflowsPage: React.FC = () => {
                     </div>
 
                     {/* Meta */}
-                    <div className="flex items-center justify-between text-xs text-muted-cv pt-2 border-t"
+                    <div className="flex items-center justify-between text-xs text-muted-cv pt-2 border-t mt-auto"
                       style={{ borderColor: 'var(--border-subtle)' }}
                     >
                       <div className="flex items-center gap-3">
@@ -248,25 +344,16 @@ export const WorkflowsPage: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-1">
                         <button
-                          className="w-7 h-7 flex items-center justify-center rounded hover:bg-hover-cv transition-colors"
-                          title="Edit"
-                        >
-                          <Edit3 size={12} style={{ color: 'var(--text-muted)' }} />
-                        </button>
-                        <button
-                          className="w-7 h-7 flex items-center justify-center rounded hover:bg-hover-cv transition-colors"
-                          title="Duplicate"
-                        >
-                          <Copy size={12} style={{ color: 'var(--text-muted)' }} />
-                        </button>
-                        <button
                           onClick={() => deleteWorkflow(wf.id)}
-                          className="w-7 h-7 flex items-center justify-center rounded hover:bg-hover-cv transition-colors"
+                          className="w-7 h-7 flex items-center justify-center rounded hover:bg-hover-cv transition-colors text-error-600"
                           title="Delete"
                         >
-                          <Trash2 size={12} style={{ color: 'var(--text-muted)' }} />
+                          <Trash2 size={12} />
                         </button>
-                        <button className="btn-primary btn-sm gap-1 ml-1">
+                        <button
+                          onClick={() => runWorkflow(wf)}
+                          className="btn-primary btn-sm gap-1 ml-1"
+                        >
                           <Play size={11} />
                           Run
                         </button>
@@ -277,6 +364,7 @@ export const WorkflowsPage: React.FC = () => {
 
                 {/* Add new card */}
                 <button
+                  onClick={() => setActiveTab('templates')}
                   className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-dashed transition-all duration-200 min-h-[160px]"
                   style={{ borderColor: 'var(--border)', backgroundColor: 'transparent' }}
                   onMouseEnter={(e) => {
@@ -289,7 +377,7 @@ export const WorkflowsPage: React.FC = () => {
                   }}
                 >
                   <Plus size={20} style={{ color: 'var(--text-muted)' }} />
-                  <span className="text-sm font-medium text-muted-cv">Create Workflow</span>
+                  <span className="text-sm font-medium text-muted-cv">Create from Template</span>
                 </button>
               </div>
             )}
@@ -302,6 +390,7 @@ export const WorkflowsPage: React.FC = () => {
             {WORKFLOW_TEMPLATES.map((tmpl) => (
               <div
                 key={tmpl.name}
+                onClick={() => applyTemplate(tmpl)}
                 className="flex flex-col gap-3 p-4 rounded-xl border transition-all duration-200 cursor-pointer"
                 style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
                 onMouseEnter={(e) => {
@@ -321,11 +410,11 @@ export const WorkflowsPage: React.FC = () => {
                 <div className="flex items-center justify-between mt-auto pt-2 border-t"
                   style={{ borderColor: 'var(--border-subtle)' }}
                 >
-                  <span className="text-xs text-muted-cv">{tmpl.steps} steps</span>
-                  <button className="flex items-center gap-1 text-xs font-medium text-accent">
+                  <span className="text-xs text-muted-cv">{tmpl.steps.length} steps</span>
+                  <span className="flex items-center gap-1 text-xs font-medium text-accent">
                     Use template
                     <ArrowRight size={12} />
-                  </button>
+                  </span>
                 </div>
               </div>
             ))}

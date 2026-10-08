@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Clock, Download, RefreshCw, Trash2, Filter, Search,
-  FileText, Image, Video, Music, Table, Globe, AlertCircle,
+  FileText, Image, Video, Music, Table, Globe, Info,
 } from 'lucide-react';
 import { CATEGORY_META } from '@/registry/tools';
 
-interface HistoryItem {
+// ─────────────────────────────────────────────────────────
+// History item — stored in localStorage by ToolPage
+// ─────────────────────────────────────────────────────────
+export interface HistoryItem {
   id: string;
   fileName: string;
   toolName: string;
@@ -19,40 +22,40 @@ interface HistoryItem {
   processingType: 'local' | 'cloud';
 }
 
-const DEMO_HISTORY: HistoryItem[] = [
-  {
-    id: '1', fileName: 'Annual_Report_2024.pdf', toolName: 'Compress PDF',
-    toolSlug: 'compress-pdf', category: 'pdf', date: '2026-10-07 09:21', size: '4.2 MB',
-    resultSize: '1.1 MB', status: 'completed', processingType: 'cloud',
-  },
-  {
-    id: '2', fileName: 'product_photos.jpg', toolName: 'Image Compressor',
-    toolSlug: 'image-compressor', category: 'image', date: '2026-10-07 07:45', size: '8.2 MB',
-    resultSize: '2.4 MB', status: 'completed', processingType: 'local',
-  },
-  {
-    id: '3', fileName: 'Invoice_Q4.docx', toolName: 'Word to PDF',
-    toolSlug: 'word-to-pdf', category: 'pdf', date: '2026-10-06 18:12', size: '128 KB',
-    resultSize: '234 KB', status: 'completed', processingType: 'cloud',
-  },
-  {
-    id: '4', fileName: 'customer_data.csv', toolName: 'CSV to Excel',
-    toolSlug: 'csv-to-excel', category: 'data', date: '2026-10-06 14:30', size: '2.8 MB',
-    resultSize: '3.1 MB', status: 'completed', processingType: 'local',
-  },
-  {
-    id: '5', fileName: 'corrupted_scan.pdf', toolName: 'OCR PDF',
-    toolSlug: 'ocr-pdf', category: 'pdf', date: '2026-10-05 11:00', size: '14.2 MB',
-    status: 'failed', processingType: 'cloud',
-  },
-  {
-    id: '6', fileName: 'presentation.pptx', toolName: 'PDF to PowerPoint',
-    toolSlug: 'pdf-to-powerpoint', category: 'pdf', date: '2026-10-05 09:45', size: '6.3 MB',
-    resultSize: '5.8 MB', status: 'completed', processingType: 'cloud',
-  },
-];
+const HISTORY_KEY = 'conveter_history';
+const MAX_HISTORY = 200;
 
-const CATEGORY_FILTERS = ['all', 'pdf', 'image', 'document', 'data', 'video', 'audio'] as const;
+/** Append a completed job to localStorage history */
+export function recordHistory(item: Omit<HistoryItem, 'id' | 'date'>): void {
+  try {
+    const existing: HistoryItem[] = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
+    const entry: HistoryItem = {
+      id: crypto.randomUUID(),
+      date: new Date().toLocaleString(),
+      ...item,
+    };
+    existing.unshift(entry);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(existing.slice(0, MAX_HISTORY)));
+  } catch {
+    // localStorage may be unavailable in private mode
+  }
+}
+
+function loadHistory(): HistoryItem[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(items: HistoryItem[]): void {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(items));
+  } catch { /* ignore */ }
+}
+
+const CATEGORY_FILTERS = ['all', 'pdf', 'image', 'document', 'data', 'video', 'audio', 'web', 'ai'] as const;
 
 const categoryIcon = (cat: string, size = 14) => {
   const props = { size };
@@ -72,8 +75,18 @@ export const HistoryPage: React.FC = () => {
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [selected, setSelected] = useState<string[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  const filtered = DEMO_HISTORY.filter((h) => {
+  // Load from localStorage on mount
+  useEffect(() => {
+    setHistory(loadHistory());
+    // Listen for storage changes from other tabs
+    const onStorage = () => setHistory(loadHistory());
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const filtered = history.filter((h) => {
     if (categoryFilter !== 'all' && h.category !== categoryFilter) return false;
     if (query && !h.fileName.toLowerCase().includes(query.toLowerCase()) &&
         !h.toolName.toLowerCase().includes(query.toLowerCase())) return false;
@@ -83,28 +96,72 @@ export const HistoryPage: React.FC = () => {
   const toggleSelect = (id: string) =>
     setSelected((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]);
 
+  const deleteSelected = () => {
+    const updated = history.filter((h) => !selected.includes(h.id));
+    setHistory(updated);
+    saveHistory(updated);
+    setSelected([]);
+  };
+
+  const deleteAll = () => {
+    setHistory([]);
+    saveHistory([]);
+    setSelected([]);
+  };
+
+  const deleteItem = (id: string) => {
+    const updated = history.filter((h) => h.id !== id);
+    setHistory(updated);
+    saveHistory(updated);
+    setSelected((prev) => prev.filter((s) => s !== id));
+  };
+
   return (
     <div className="pt-20 pb-16" style={{ backgroundColor: 'var(--bg)' }}>
       <div className="container-app">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold text-primary">File History</h1>
             <p className="text-sm text-muted-cv mt-1">
-              {DEMO_HISTORY.length} processed files
+              {history.length > 0 ? `${history.length} recorded conversion${history.length !== 1 ? 's' : ''}` : 'No history yet'}
             </p>
           </div>
-          {selected.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-cv">{selected.length} selected</span>
-              <button className="btn-secondary btn-sm gap-1.5">
-                <Download size={13} /> Download
+          <div className="flex items-center gap-2">
+            {selected.length > 0 && (
+              <>
+                <span className="text-sm text-muted-cv">{selected.length} selected</span>
+                <button
+                  onClick={deleteSelected}
+                  className="btn-secondary btn-sm gap-1.5"
+                  style={{ color: '#ef4444' }}
+                >
+                  <Trash2 size={13} /> Delete selected
+                </button>
+              </>
+            )}
+            {history.length > 0 && (
+              <button
+                onClick={deleteAll}
+                className="btn-secondary btn-sm gap-1.5 text-xs"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <Trash2 size={12} /> Clear all
               </button>
-              <button className="btn-danger btn-sm gap-1.5">
-                <Trash2 size={13} /> Delete
-              </button>
-            </div>
-          )}
+            )}
+          </div>
+        </div>
+
+        {/* Notice: history is session-local */}
+        <div className="flex items-start gap-2.5 p-3 rounded-lg border mb-5"
+          style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+        >
+          <Info size={14} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 1 }} />
+          <p className="text-xs text-muted-cv leading-relaxed">
+            History is stored locally in your browser's localStorage. It is never uploaded to any server.
+            Clearing browser data will remove it. Re-download of processed files is not available — download
+            immediately after processing.
+          </p>
         </div>
 
         {/* Filters */}
@@ -142,14 +199,27 @@ export const HistoryPage: React.FC = () => {
           </div>
         </div>
 
-        {/* History table */}
-        {filtered.length === 0 ? (
+        {/* Empty state */}
+        {history.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <Clock size={40} style={{ color: 'var(--text-disabled)' }} />
             <div className="text-center">
-              <p className="font-medium text-primary">No history found</p>
-              <p className="text-sm text-muted-cv mt-1">Try adjusting your filters</p>
+              <p className="font-medium text-primary">No history yet</p>
+              <p className="text-sm text-muted-cv mt-1">
+                Converted files will appear here automatically after processing.
+              </p>
             </div>
+            <Link to="/tools" className="btn-primary btn-md" style={{ backgroundColor: 'var(--accent)' }}>
+              Browse Tools
+            </Link>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Filter size={32} style={{ color: 'var(--text-disabled)' }} />
+            <p className="text-sm text-muted-cv">No items match your filters.</p>
+            <button onClick={() => { setQuery(''); setCategoryFilter('all'); }} className="btn-secondary btn-sm">
+              Clear filters
+            </button>
           </div>
         ) : (
           <div className="rounded-xl border overflow-hidden"
@@ -161,7 +231,7 @@ export const HistoryPage: React.FC = () => {
                 borderColor: 'var(--border)',
                 backgroundColor: 'var(--muted)',
                 color: 'var(--text-muted)',
-                gridTemplateColumns: '2rem 1fr 180px 100px 100px 80px 120px',
+                gridTemplateColumns: '2rem 1fr 180px 100px 100px 80px 80px',
                 fontSize: '11px',
               }}
             >
@@ -185,7 +255,7 @@ export const HistoryPage: React.FC = () => {
                     key={item.id}
                     className="grid items-center gap-4 px-4 py-3 transition-colors hover:bg-hover-cv"
                     style={{
-                      gridTemplateColumns: '2rem 1fr 180px 100px 100px 80px 120px',
+                      gridTemplateColumns: '2rem 1fr 180px 100px 100px 80px 80px',
                       backgroundColor: isSelected ? 'var(--accent-subtle)' : undefined,
                     }}
                   >
@@ -224,11 +294,11 @@ export const HistoryPage: React.FC = () => {
                     {/* Original size */}
                     <span className="text-xs text-muted-cv font-num">{item.size}</span>
 
-                    {/* Result size */}
+                    {/* Result size / status */}
                     <span className="text-xs font-num"
                       style={{ color: item.status === 'completed' ? '#22c55e' : item.status === 'failed' ? '#ef4444' : 'var(--text-muted)' }}
                     >
-                      {item.status === 'completed' ? item.resultSize || '—' : item.status === 'failed' ? 'Failed' : '...'}
+                      {item.status === 'completed' ? (item.resultSize || '✓') : item.status === 'failed' ? 'Failed' : '…'}
                     </span>
 
                     {/* Processing type */}
@@ -242,25 +312,19 @@ export const HistoryPage: React.FC = () => {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1">
-                      {item.status === 'completed' && (
-                        <button
-                          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-hover-cv transition-colors"
-                          title="Download"
-                        >
-                          <Download size={13} style={{ color: 'var(--text-muted)' }} />
-                        </button>
-                      )}
                       {item.status === 'failed' && (
-                        <button
+                        <Link
+                          to={`/tool/${item.toolSlug}`}
                           className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-hover-cv transition-colors"
                           title="Retry"
                         >
                           <RefreshCw size={13} style={{ color: 'var(--text-muted)' }} />
-                        </button>
+                        </Link>
                       )}
                       <button
+                        onClick={() => deleteItem(item.id)}
                         className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-hover-cv transition-colors"
-                        title="Delete"
+                        title="Remove from history"
                       >
                         <Trash2 size={13} style={{ color: 'var(--text-muted)' }} />
                       </button>

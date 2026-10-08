@@ -21,7 +21,9 @@ export type OptionField =
   | { type: 'range'; key: string; label: string; min: number; max: number; step: number; default: number; unit?: string }
   | { type: 'text'; key: string; label: string; placeholder?: string; default: string }
   | { type: 'checkbox'; key: string; label: string; default: boolean }
-  | { type: 'number'; key: string; label: string; min?: number; max?: number; default: number };
+  | { type: 'number'; key: string; label: string; min?: number; max?: number; default: number }
+  | { type: 'password'; key: string; label: string; placeholder?: string; default: string }
+  | { type: 'textarea'; key: string; label: string; placeholder?: string; default: string; rows?: number };
 
 // ─────────────────────────────────────────────────────────
 // Processor function signature
@@ -42,12 +44,15 @@ export interface ToolDispatch {
   multiFile?: boolean;
   /** Human-readable description of what options do */
   optionsHint?: string;
+  /** 'url' = show URL input instead of file upload; 'signature' = show signature pad; 'camera' = show camera capture */
+  inputMode?: 'url' | 'signature' | 'camera' | 'url-or-file';
 }
 
 // ─────────────────────────────────────────────────────────
 // The dispatch map
 // ─────────────────────────────────────────────────────────
 const dispatchMap: Record<string, ToolDispatch> = {
+  // ── TEXT / DEVELOPER ──────────────────────────────────
   'base64-encoder': {
     processor: async (files, opts) => (await import('./textTools')).runTextTool('base64-encoder', files[0], opts),
     textPlaceholder: 'Enter the text to encode or decode…',
@@ -159,12 +164,22 @@ const dispatchMap: Record<string, ToolDispatch> = {
     processor: async (files, opts) => (await import('./textTools')).runTextTool('business-card-generator', files[0], opts),
     textPlaceholder: '{\n  "name": "Your Name",\n  "title": "Role",\n  "company": "Company",\n  "email": "you@example.com",\n  "phone": "+1 555 0100",\n  "website": "example.com"\n}',
   },
+
+  // ── COLOR PICKER ──────────────────────────────────────
+  'color-picker': {
+    processor: async (files, opts) => {
+      const { runTextTool } = await import('./textTools');
+      return runTextTool('color-converter', files[0], opts);
+    },
+    textPlaceholder: 'Enter a HEX color (e.g. #4A4AE8), RGB (e.g. rgb(74,74,232)), or HSL…',
+    optionsHint: 'Returns the color in HEX, RGB, and HSL formats.',
+  },
+
   // ── PDF ──────────────────────────────────────────────
   'compress-pdf': {
     processor: async (files, opts) => {
       const { watermarkPdf } = await import('./processors');
-      // True compression requires server. For offline we do a re-save which
-      // strips unused objects. Show as "optimized".
+      // Re-save strips unused objects; show actual output size vs input
       return watermarkPdf(files[0], '', { opacity: 0 });
     },
     optionFields: [
@@ -177,7 +192,7 @@ const dispatchMap: Record<string, ToolDispatch> = {
         default: 'medium',
       },
     ],
-    optionsHint: 'Higher compression = smaller file but may reduce quality.',
+    optionsHint: 'Browser-side compression re-saves the PDF and strips unused objects. Deep image compression requires the backend service.',
   },
 
   'merge-pdf': {
@@ -261,7 +276,16 @@ const dispatchMap: Record<string, ToolDispatch> = {
       const { extractTextFromPdf } = await import('./processors');
       return extractTextFromPdf(files[0]);
     },
-    optionsHint: 'Extracts embedded text only. Scanned PDFs require OCR (Premium).',
+    optionsHint: 'Extracts embedded text only. Scanned PDFs require OCR (Premium — needs backend).',
+  },
+
+  'pdf-to-markdown': {
+    processor: async (files) => {
+      const result = await (await import('./processors')).extractTextFromPdf(files[0]);
+      const text = await result.blob.text();
+      return { blob: new Blob([text], { type: 'text/markdown' }), filename: files[0].name.replace(/\.pdf$/i, '.md'), mimeType: 'text/markdown' };
+    },
+    optionsHint: 'Extracts embedded PDF text only; it does not OCR scanned pages.',
   },
 
   'jpg-to-pdf': {
@@ -279,6 +303,209 @@ const dispatchMap: Record<string, ToolDispatch> = {
       const { imagesToPdf } = await import('./processors');
       return imagesToPdf(files);
     },
+  },
+
+  // NEW PDF TOOLS
+  'pdf-to-jpg': {
+    processor: async (files, opts) => {
+      const { pdfToImages } = await import('./advancedPdfTools');
+      return pdfToImages(files[0], {
+        format: (opts.format as 'jpeg' | 'png') ?? 'jpeg',
+        quality: Number(opts.quality ?? 85) / 100,
+        dpi: Number(opts.dpi ?? 150),
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'format', label: 'Image Format',
+        options: [{ label: 'JPEG', value: 'jpeg' }, { label: 'PNG (lossless)', value: 'png' }],
+        default: 'jpeg',
+      },
+      { type: 'range', key: 'quality', label: 'JPEG Quality', min: 40, max: 100, step: 5, default: 85, unit: '%' },
+      { type: 'select', key: 'dpi', label: 'Resolution',
+        options: [{ label: '72 DPI (web)', value: '72' }, { label: '150 DPI (balanced)', value: '150' }, { label: '300 DPI (print)', value: '300' }],
+        default: '150',
+      },
+    ],
+    optionsHint: 'Renders each PDF page as an image. Requires internet (loads pdf.js from CDN). Results are bundled as individual files.',
+  },
+
+  'protect-pdf': {
+    processor: async (files, opts) => {
+      const { protectPdf } = await import('./advancedPdfTools');
+      return protectPdf(files[0], {
+        userPassword: String(opts.userPassword ?? ''),
+        ownerPassword: String(opts.ownerPassword ?? ''),
+        allowPrinting: opts.allowPrinting !== false,
+        allowCopying: Boolean(opts.allowCopying ?? false),
+      });
+    },
+    optionFields: [
+      { type: 'password', key: 'userPassword', label: 'Open Password (required)', placeholder: 'Password to open the PDF', default: '' },
+      { type: 'password', key: 'ownerPassword', label: 'Owner Password (optional)', placeholder: 'Leave blank to use open password', default: '' },
+      { type: 'checkbox', key: 'allowPrinting', label: 'Allow printing', default: true },
+      { type: 'checkbox', key: 'allowCopying', label: 'Allow text copying', default: false },
+    ],
+    optionsHint: 'Uses RC4-128 encryption — standard PDF password protection compatible with all PDF readers.',
+  },
+
+  'unlock-pdf': {
+    processor: async (files, opts) => {
+      const { unlockPdf } = await import('./advancedPdfTools');
+      return unlockPdf(files[0], String(opts.password ?? ''));
+    },
+    optionFields: [
+      { type: 'password', key: 'password', label: 'PDF Password', placeholder: 'Enter the PDF password to unlock it', default: '' },
+    ],
+    optionsHint: 'Enter the password you set when protecting the PDF. Without the correct password the file cannot be unlocked.',
+  },
+
+  'sign-pdf': {
+    inputMode: 'signature',
+    processor: async (files, opts) => {
+      const { signPdf } = await import('./advancedPdfTools');
+      return signPdf(files[0], {
+        signatureDataUrl: String(opts.signatureDataUrl ?? ''),
+        page: opts.page ? Number(opts.page) : undefined,
+        x: Number(opts.x ?? 50),
+        y: Number(opts.y ?? 10),
+        scalePercent: Number(opts.scalePercent ?? 40),
+      });
+    },
+    optionFields: [
+      { type: 'number', key: 'page', label: 'Page number (0 = last page)', min: 0, max: 9999, default: 0 },
+      { type: 'range', key: 'x', label: 'Horizontal position', min: 0, max: 100, step: 5, default: 50, unit: '%' },
+      { type: 'range', key: 'y', label: 'Vertical position (from bottom)', min: 0, max: 100, step: 5, default: 10, unit: '%' },
+      { type: 'range', key: 'scalePercent', label: 'Signature width', min: 10, max: 80, step: 5, default: 40, unit: '% of page' },
+    ],
+    optionsHint: 'Draw your signature in the pad above, then set the placement options and click Process.',
+  },
+
+  'redact-pdf': {
+    processor: async (files, opts) => {
+      const { redactPdf } = await import('./advancedPdfTools');
+      const terms = String(opts.terms ?? '').split('\n').map((t) => t.trim()).filter(Boolean);
+      return redactPdf(files[0], { terms, caseSensitive: Boolean(opts.caseSensitive) });
+    },
+    optionFields: [
+      { type: 'textarea', key: 'terms', label: 'Terms to redact (one per line)', placeholder: 'John Smith\nSSN: 123-45-6789\nconfidential', default: '', rows: 6 },
+      { type: 'checkbox', key: 'caseSensitive', label: 'Case-sensitive matching', default: false },
+    ],
+    optionsHint: 'Removes matched text from the content stream and covers the area with a black rectangle. For forensic-grade redaction, configure the backend service.',
+  },
+
+  'compare-pdf': {
+    multiFile: true,
+    processor: async (files) => {
+      const { comparePdfs } = await import('./advancedPdfTools');
+      if (files.length < 2) throw new Error('Upload exactly two PDF files to compare.');
+      return comparePdfs(files[0], files[1]);
+    },
+    optionsHint: 'Upload two PDF files. The comparison extracts embedded text and reports differences. Visual layout differences are not detected.',
+  },
+
+  'repair-pdf': {
+    processor: async (files) => {
+      const { repairPdf } = await import('./advancedPdfTools');
+      return repairPdf(files[0]);
+    },
+    optionsHint: 'Attempts to reload and re-save the PDF, fixing broken cross-reference tables. Severely corrupted files may require the backend service.',
+  },
+
+  'ocr-pdf': {
+    processor: async (files, opts) => {
+      const { ocrPdf } = await import('./aiTools');
+      return ocrPdf(files[0], {
+        language: String(opts.language ?? 'eng'),
+        outputFormat: (opts.outputFormat as 'pdf' | 'txt') ?? 'txt',
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'language', label: 'Document Language',
+        options: [
+          { label: 'English', value: 'eng' },
+          { label: 'French', value: 'fra' },
+          { label: 'German', value: 'deu' },
+          { label: 'Spanish', value: 'spa' },
+          { label: 'Italian', value: 'ita' },
+          { label: 'Portuguese', value: 'por' },
+          { label: 'Chinese (Simplified)', value: 'chi_sim' },
+          { label: 'Japanese', value: 'jpn' },
+          { label: 'Arabic', value: 'ara' },
+          { label: 'Hindi', value: 'hin' },
+        ],
+        default: 'eng',
+      },
+      { type: 'select', key: 'outputFormat', label: 'Output Format',
+        options: [{ label: 'Text (.txt)', value: 'txt' }, { label: 'Searchable PDF', value: 'pdf' }],
+        default: 'txt',
+      },
+    ],
+    optionsHint: 'Requires the CONVETER backend with Tesseract or an OCR provider configured.',
+  },
+
+  'pdf-to-word': {
+    processor: async (files) => {
+      const { pdfToWord } = await import('./advancedPdfTools');
+      return pdfToWord(files[0]);
+    },
+    optionsHint: 'Requires the CONVETER backend service. Set VITE_BACKEND_URL in Render.',
+  },
+
+  'pdf-to-excel': {
+    processor: async (files, opts) => {
+      const { extractPdfTables } = await import('./advancedPdfTools');
+      return extractPdfTables(files[0], {
+        outputFormat: (opts.outputFormat as 'csv' | 'xlsx') ?? 'xlsx',
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'outputFormat', label: 'Output Format',
+        options: [{ label: 'Excel (.xlsx)', value: 'xlsx' }, { label: 'CSV', value: 'csv' }],
+        default: 'xlsx',
+      },
+    ],
+    optionsHint: 'Uses heuristic text extraction. For complex PDF tables, configure the backend for server-side extraction.',
+  },
+
+  'pdf-to-powerpoint': {
+    processor: async (files) => {
+      const { pdfToPowerPoint } = await import('./advancedPdfTools');
+      return pdfToPowerPoint(files[0]);
+    },
+    optionsHint: 'Requires the CONVETER backend service. Set VITE_BACKEND_URL in Render.',
+  },
+
+  'ai-pdf-summarizer': {
+    processor: async (files, opts) => {
+      const { aiSummarize } = await import('./aiTools');
+      return aiSummarize(files[0], {
+        style: (opts.style as 'concise' | 'detailed' | 'bullet') ?? 'concise',
+        language: String(opts.language ?? 'English'),
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'style', label: 'Summary Style',
+        options: [
+          { label: 'Concise (1 paragraph)', value: 'concise' },
+          { label: 'Detailed (multiple paragraphs)', value: 'detailed' },
+          { label: 'Bullet points', value: 'bullet' },
+        ],
+        default: 'concise',
+      },
+      { type: 'text', key: 'language', label: 'Output Language', placeholder: 'e.g. English, Spanish, French', default: 'English' },
+    ],
+    optionsHint: 'Requires the CONVETER backend with an AI provider (OpenAI, Anthropic, or Gemini) configured.',
+  },
+
+  'ask-pdf': {
+    processor: async (files, opts) => {
+      const { askPdf } = await import('./aiTools');
+      return askPdf(files[0], String(opts.question ?? ''));
+    },
+    optionFields: [
+      { type: 'textarea', key: 'question', label: 'Your question', placeholder: 'What is the main topic of this document?', default: '', rows: 3 },
+    ],
+    optionsHint: 'Requires the CONVETER backend with an AI provider configured. The AI reads the extracted text from the PDF to answer your question.',
   },
 
   // ── IMAGE ────────────────────────────────────────────
@@ -312,15 +539,6 @@ const dispatchMap: Record<string, ToolDispatch> = {
       { type: 'range', key: 'quality', label: 'Quality', min: 10, max: 100, step: 5, default: 70, unit: '%' },
     ],
     optionsHint: 'Lower quality = smaller file size.',
-  },
-
-  'pdf-to-markdown': {
-    processor: async (files) => {
-      const result = await (await import('./processors')).extractTextFromPdf(files[0]);
-      const text = await result.blob.text();
-      return { blob: new Blob([text], { type: 'text/markdown' }), filename: files[0].name.replace(/\.pdf$/i, '.md'), mimeType: 'text/markdown' };
-    },
-    optionsHint: 'Extracts embedded PDF text only; it does not OCR scanned pages.',
   },
 
   'image-crop': {
@@ -464,22 +682,87 @@ const dispatchMap: Record<string, ToolDispatch> = {
     ],
   },
 
-  // ── ARCHIVE ──────────────────────────────────────────
-  'create-zip': {
-    multiFile: true,
+  // NEW IMAGE TOOLS
+  'background-remover': {
     processor: async (files) => {
-      const { createZip } = await import('./processors');
-      return createZip(files, 'archive.zip');
+      const { removeBackground } = await import('./advancedPdfTools');
+      return removeBackground(files[0]);
     },
-    optionsHint: 'All selected files will be zipped into a single archive.',
+    optionsHint: 'Requires the CONVETER backend with an AI background removal model (remove.bg API or self-hosted RMBG). Set VITE_BACKEND_URL in Render.',
   },
 
-  'extract-zip': {
-    processor: async (files) => {
-      const { extractZip } = await import('./processors');
-      return extractZip(files[0]);
+  'image-upscaler': {
+    processor: async (files, opts) => {
+      const { upscaleImage } = await import('./advancedPdfTools');
+      return upscaleImage(files[0], { scale: (opts.scale as 2 | 4) ?? 2 });
     },
-    optionsHint: 'The ZIP will be extracted and all files made available for download.',
+    optionFields: [
+      { type: 'select', key: 'scale', label: 'Upscale Factor',
+        options: [{ label: '2× (recommended)', value: '2' }, { label: '4× (slower, larger output)', value: '4' }],
+        default: '2',
+      },
+    ],
+    optionsHint: 'Requires the CONVETER backend with Real-ESRGAN or a similar AI upscaling model configured.',
+  },
+
+  'exif-viewer': {
+    processor: async (files) => {
+      const { readExif } = await import('./advancedPdfTools');
+      return readExif(files[0]);
+    },
+    optionsHint: 'Reads JPEG EXIF metadata directly in your browser. No file is uploaded.',
+  },
+
+  // ── DOCUMENT ────────────────────────────────────────
+  'docx-to-pdf': {
+    processor: async (files) => {
+      const { docxToPdf } = await import('./advancedPdfTools');
+      return docxToPdf(files[0]);
+    },
+    optionsHint: 'Requires the CONVETER backend service. Set VITE_BACKEND_URL in Render.',
+  },
+
+  'word-to-pdf': {
+    processor: async (files) => {
+      const { wordToPdf } = await import('./advancedPdfTools');
+      return wordToPdf(files[0]);
+    },
+    optionsHint: 'Requires the CONVETER backend service. Set VITE_BACKEND_URL in Render.',
+  },
+
+  'markdown-to-pdf': {
+    processor: async (files, opts) => {
+      const { markdownToPdf } = await import('./advancedPdfTools');
+      const text = await files[0].text();
+      return markdownToPdf(text, { title: String(opts.title ?? files[0].name.replace(/\.[^.]+$/, '')) });
+    },
+    optionFields: [
+      { type: 'text', key: 'title', label: 'Document Title', placeholder: 'Optional title for the PDF', default: '' },
+    ],
+    optionsHint: 'Converts Markdown headings, paragraphs, and basic formatting to a PDF document — fully in the browser.',
+  },
+
+  'epub-to-pdf': {
+    processor: async (files) => {
+      const { epubToPdf } = await import('./advancedPdfTools');
+      return epubToPdf(files[0]);
+    },
+    optionsHint: 'Requires the CONVETER backend service. Set VITE_BACKEND_URL in Render.',
+  },
+
+  'html-to-pdf': {
+    processor: async (files, opts) => {
+      const { htmlToPdf } = await import('./advancedPdfTools');
+      if (opts.url) {
+        return htmlToPdf('', { url: String(opts.url) });
+      }
+      const text = await files[0].text();
+      return htmlToPdf(text);
+    },
+    optionFields: [
+      { type: 'text', key: 'url', label: 'Or enter a URL instead of a file', placeholder: 'https://example.com (requires backend)', default: '' },
+    ],
+    optionsHint: 'Upload an HTML file for client-side conversion, or enter a URL for backend-rendered PDF (requires VITE_BACKEND_URL).',
   },
 
   // ── DATA ─────────────────────────────────────────────
@@ -533,6 +816,22 @@ const dispatchMap: Record<string, ToolDispatch> = {
     processor: async (files) => (await import('./dataTools')).xmlToJson(files[0]),
   },
 
+  'pdf-table-extractor': {
+    processor: async (files, opts) => {
+      const { extractPdfTables } = await import('./advancedPdfTools');
+      return extractPdfTables(files[0], {
+        outputFormat: (opts.outputFormat as 'csv' | 'xlsx') ?? 'xlsx',
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'outputFormat', label: 'Output Format',
+        options: [{ label: 'Excel (.xlsx)', value: 'xlsx' }, { label: 'CSV', value: 'csv' }],
+        default: 'xlsx',
+      },
+    ],
+    optionsHint: 'Uses heuristic text-based extraction. Complex PDF tables may need the backend service.',
+  },
+
   'json-formatter': {
     processor: async (files, opts) => {
       const { formatJson } = await import('./processors');
@@ -547,6 +846,351 @@ const dispatchMap: Record<string, ToolDispatch> = {
         default: 'format',
       },
     ],
+  },
+
+  // ── WEB TOOLS ────────────────────────────────────────
+  'url-scraper': {
+    inputMode: 'url',
+    processor: async (files, opts) => {
+      const { scrapeUrl } = await import('./webTools');
+      return scrapeUrl(String(opts._url ?? ''), {
+        format: (opts.format as 'text' | 'markdown' | 'html') ?? 'text',
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'format', label: 'Output Format',
+        options: [
+          { label: 'Plain Text', value: 'text' },
+          { label: 'Markdown', value: 'markdown' },
+          { label: 'HTML', value: 'html' },
+        ],
+        default: 'text',
+      },
+    ],
+    optionsHint: 'Requires the CONVETER backend service for SSRF-safe URL fetching.',
+  },
+
+  'webpage-to-pdf': {
+    inputMode: 'url',
+    processor: async (files, opts) => {
+      const { webpageToPdf } = await import('./webTools');
+      return webpageToPdf(String(opts._url ?? ''));
+    },
+    optionsHint: 'Requires the CONVETER backend service (Puppeteer/Playwright for headless rendering).',
+  },
+
+  'webpage-to-markdown': {
+    inputMode: 'url',
+    processor: async (files, opts) => {
+      const { webpageToMarkdown } = await import('./webTools');
+      return webpageToMarkdown(String(opts._url ?? ''));
+    },
+    optionsHint: 'Requires the CONVETER backend service.',
+  },
+
+  'table-scraper': {
+    inputMode: 'url',
+    processor: async (files, opts) => {
+      const { scrapeTables } = await import('./webTools');
+      return scrapeTables(String(opts._url ?? ''), {
+        outputFormat: (opts.outputFormat as 'csv' | 'xlsx') ?? 'csv',
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'outputFormat', label: 'Output Format',
+        options: [{ label: 'CSV', value: 'csv' }, { label: 'Excel (.xlsx)', value: 'xlsx' }],
+        default: 'csv',
+      },
+    ],
+    optionsHint: 'Extracts HTML <table> elements from the page. JavaScript-rendered tables require the backend.',
+  },
+
+  'seo-analyzer': {
+    inputMode: 'url',
+    processor: async (files, opts) => {
+      const { analyzeSeo } = await import('./webTools');
+      const { blob, filename } = await analyzeSeo(String(opts._url ?? ''));
+      return { blob, filename, mimeType: 'text/plain' };
+    },
+    optionsHint: 'Analyzes on-page SEO factors via the CONVETER backend. Requires VITE_BACKEND_URL.',
+  },
+
+  // ── AI TOOLS ─────────────────────────────────────────
+  'ai-document-summarizer': {
+    processor: async (files, opts) => {
+      const { aiSummarize } = await import('./aiTools');
+      return aiSummarize(files[0], {
+        style: (opts.style as 'concise' | 'detailed' | 'bullet') ?? 'concise',
+        language: String(opts.language ?? 'English'),
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'style', label: 'Summary Style',
+        options: [
+          { label: 'Concise (1 paragraph)', value: 'concise' },
+          { label: 'Detailed (multiple paragraphs)', value: 'detailed' },
+          { label: 'Bullet points', value: 'bullet' },
+        ],
+        default: 'concise',
+      },
+      { type: 'text', key: 'language', label: 'Output Language', placeholder: 'English, Spanish, French…', default: 'English' },
+    ],
+    optionsHint: 'Requires the CONVETER backend with an AI provider (OpenAI, Anthropic, or Gemini) configured.',
+  },
+
+  'ai-translation': {
+    processor: async (files, opts) => {
+      const { aiTranslate } = await import('./aiTools');
+      return aiTranslate(files[0], {
+        targetLanguage: String(opts.targetLanguage ?? 'Spanish'),
+        sourceLanguage: String(opts.sourceLanguage ?? 'auto'),
+      });
+    },
+    optionFields: [
+      { type: 'text', key: 'targetLanguage', label: 'Target Language', placeholder: 'e.g. Spanish, French, Japanese', default: 'Spanish' },
+      { type: 'text', key: 'sourceLanguage', label: 'Source Language (auto-detect if blank)', placeholder: 'auto', default: 'auto' },
+    ],
+    optionsHint: 'Translates the entire file text using AI. Requires the backend with an AI provider configured.',
+  },
+
+  'grammar-checker': {
+    processor: async (files, opts) => {
+      const { checkGrammar } = await import('./aiTools');
+      const text = await files[0].text();
+      return checkGrammar(text, { returnCorrected: Boolean(opts.returnCorrected ?? true) });
+    },
+    textPlaceholder: 'Paste the text you want to check for grammar errors…',
+    optionFields: [
+      { type: 'checkbox', key: 'returnCorrected', label: 'Include corrected version in output', default: true },
+    ],
+    optionsHint: 'Requires the CONVETER backend with an AI provider configured.',
+  },
+
+  'ai-paraphraser': {
+    processor: async (files, opts) => {
+      const { aiParaphrase } = await import('./aiTools');
+      const text = await files[0].text();
+      return aiParaphrase(text, { tone: (opts.tone as 'formal' | 'casual' | 'simple' | 'creative') ?? 'formal' });
+    },
+    textPlaceholder: 'Enter the text you want to paraphrase…',
+    optionFields: [
+      { type: 'select', key: 'tone', label: 'Tone / Style',
+        options: [
+          { label: 'Formal (professional)', value: 'formal' },
+          { label: 'Casual (conversational)', value: 'casual' },
+          { label: 'Simple (easy to read)', value: 'simple' },
+          { label: 'Creative (varied vocabulary)', value: 'creative' },
+        ],
+        default: 'formal',
+      },
+    ],
+    optionsHint: 'Requires the CONVETER backend with an AI provider configured.',
+  },
+
+  'keyword-extractor': {
+    processor: async (files, opts) => {
+      const { extractKeywords } = await import('./aiTools');
+      return extractKeywords(files[0], {
+        maxKeywords: Number(opts.maxKeywords ?? 20),
+        includeFrequency: Boolean(opts.includeFrequency ?? true),
+      });
+    },
+    optionFields: [
+      { type: 'number', key: 'maxKeywords', label: 'Maximum keywords', min: 5, max: 50, default: 20 },
+      { type: 'checkbox', key: 'includeFrequency', label: 'Show word frequency', default: true },
+    ],
+    optionsHint: 'Requires the CONVETER backend with an AI provider configured.',
+  },
+
+  // ── VIDEO TOOLS ──────────────────────────────────────
+  'video-converter': {
+    processor: async (files, opts) => {
+      // Browser can only re-encode via canvas/MediaRecorder to WebM.
+      // Real format conversion requires backend FFmpeg.
+      const targetFormat = String(opts.format ?? 'webm');
+      if (targetFormat !== 'webm') {
+        // Route to backend
+        const base = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.replace(/\/$/, '');
+        if (!base) {
+          const { ProcessorError } = await import('./processors');
+          throw new ProcessorError(
+            `Converting to ${targetFormat.toUpperCase()} requires the CONVETER backend with FFmpeg. ` +
+            'Set VITE_BACKEND_URL in Render. WebM output works in the browser.',
+            'BACKEND_NOT_CONFIGURED'
+          );
+        }
+        const formData = new FormData();
+        formData.append('file', files[0]);
+        formData.append('format', targetFormat);
+        const response = await fetch(`${base}/api/video/convert`, { method: 'POST', body: formData, signal: AbortSignal.timeout(300_000) });
+        if (!response.ok) throw new Error(`Backend error: ${response.status}`);
+        const blob = await response.blob();
+        return { blob, filename: `${files[0].name.replace(/\.[^.]+$/, '')}.${targetFormat}`, mimeType: blob.type };
+      }
+      const { compressVideoCanvas } = await import('./mediaTools');
+      return compressVideoCanvas(files[0], { scalePercent: 100 });
+    },
+    optionFields: [
+      { type: 'select', key: 'format', label: 'Output Format',
+        options: [
+          { label: 'WebM (browser, no backend needed)', value: 'webm' },
+          { label: 'MP4 (requires backend)', value: 'mp4' },
+          { label: 'MOV (requires backend)', value: 'mov' },
+          { label: 'MKV (requires backend)', value: 'mkv' },
+        ],
+        default: 'webm',
+      },
+    ],
+    optionsHint: 'WebM output works in the browser. MP4/MOV/MKV require the CONVETER backend with FFmpeg.',
+  },
+
+  'video-compressor': {
+    processor: async (files, opts) => {
+      const { compressVideoCanvas } = await import('./mediaTools');
+      return compressVideoCanvas(files[0], { scalePercent: Number(opts.scalePercent ?? 50) });
+    },
+    optionFields: [
+      { type: 'select', key: 'scalePercent', label: 'Output Resolution',
+        options: [
+          { label: '100% (original resolution, codec compression only)', value: '100' },
+          { label: '75% (light reduction)', value: '75' },
+          { label: '50% (balanced)', value: '50' },
+          { label: '25% (maximum reduction)', value: '25' },
+        ],
+        default: '50',
+      },
+    ],
+    optionsHint: 'Browser-side compression re-encodes to WebM VP8 via canvas. This removes audio and preserves only the video. For full-featured compression with audio, configure the backend.',
+  },
+
+  'video-to-gif': {
+    processor: async (files, opts) => {
+      const { videoToGif } = await import('./mediaTools');
+      return videoToGif(files[0], {
+        fps: Number(opts.fps ?? 10),
+        durationSeconds: Number(opts.durationSeconds ?? 5),
+        width: Number(opts.width ?? 480),
+      });
+    },
+    optionFields: [
+      { type: 'number', key: 'fps', label: 'Frames per second', min: 1, max: 30, default: 10 },
+      { type: 'number', key: 'durationSeconds', label: 'Duration to capture (seconds)', min: 1, max: 60, default: 5 },
+      { type: 'number', key: 'width', label: 'Output width (px)', min: 120, max: 1280, default: 480 },
+    ],
+    optionsHint: 'Extracts PNG frames in the browser and bundles them in a ZIP with assembly instructions. True GIF encoding requires FFmpeg on the backend.',
+  },
+
+  'video-to-audio': {
+    processor: async (files, opts) => {
+      const { extractAudioFromVideo } = await import('./mediaTools');
+      return extractAudioFromVideo(files[0], (opts.format as 'wav' | 'ogg' | 'mp3') ?? 'wav');
+    },
+    optionFields: [
+      { type: 'select', key: 'format', label: 'Output Format',
+        options: [
+          { label: 'WAV (browser-native, uncompressed)', value: 'wav' },
+          { label: 'MP3 (requires backend)', value: 'mp3' },
+          { label: 'AAC (requires backend)', value: 'aac' },
+        ],
+        default: 'wav',
+      },
+    ],
+    optionsHint: 'WAV output works in the browser using the Web Audio API. MP3/AAC require the CONVETER backend with FFmpeg.',
+  },
+
+  // ── AUDIO TOOLS ──────────────────────────────────────
+  'audio-converter': {
+    processor: async (files, opts) => {
+      const { convertAudio } = await import('./mediaTools');
+      return convertAudio(files[0], (opts.format as 'wav' | 'ogg' | 'webm') ?? 'wav');
+    },
+    optionFields: [
+      { type: 'select', key: 'format', label: 'Output Format',
+        options: [
+          { label: 'WAV (browser-native)', value: 'wav' },
+          { label: 'OGG (browser, limited support)', value: 'ogg' },
+          { label: 'MP3 (requires backend)', value: 'mp3' },
+          { label: 'AAC/M4A (requires backend)', value: 'aac' },
+          { label: 'FLAC (requires backend)', value: 'flac' },
+        ],
+        default: 'wav',
+      },
+    ],
+    optionsHint: 'WAV output is fully browser-side. Other formats require the CONVETER backend with FFmpeg.',
+  },
+
+  'speech-to-text': {
+    processor: async (files, opts) => {
+      const { speechToText } = await import('./aiTools');
+      return speechToText(files[0], {
+        language: String(opts.language ?? 'auto'),
+        outputFormat: (opts.outputFormat as 'txt' | 'srt' | 'vtt') ?? 'txt',
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'language', label: 'Audio Language',
+        options: [
+          { label: 'Auto-detect', value: 'auto' },
+          { label: 'English', value: 'en' },
+          { label: 'Spanish', value: 'es' },
+          { label: 'French', value: 'fr' },
+          { label: 'German', value: 'de' },
+          { label: 'Hindi', value: 'hi' },
+          { label: 'Chinese', value: 'zh' },
+          { label: 'Japanese', value: 'ja' },
+          { label: 'Arabic', value: 'ar' },
+        ],
+        default: 'auto',
+      },
+      { type: 'select', key: 'outputFormat', label: 'Output Format',
+        options: [
+          { label: 'Plain text (.txt)', value: 'txt' },
+          { label: 'SRT subtitles (.srt)', value: 'srt' },
+          { label: 'WebVTT (.vtt)', value: 'vtt' },
+        ],
+        default: 'txt',
+      },
+    ],
+    optionsHint: 'Requires the CONVETER backend with OpenAI Whisper or a compatible speech-to-text API configured.',
+  },
+
+  // ── SCANNER ──────────────────────────────────────────
+  'document-scanner': {
+    processor: async (files, opts) => {
+      const { scanDocument } = await import('./advancedPdfTools');
+      return scanDocument(files[0], {
+        outputFormat: (opts.outputFormat as 'pdf' | 'jpg') ?? 'pdf',
+        contrast: Number(opts.contrast ?? 1.3),
+        threshold: Number(opts.threshold ?? 128),
+      });
+    },
+    optionFields: [
+      { type: 'select', key: 'outputFormat', label: 'Output Format',
+        options: [{ label: 'PDF', value: 'pdf' }, { label: 'JPEG Image', value: 'jpg' }],
+        default: 'pdf',
+      },
+      { type: 'range', key: 'contrast', label: 'Contrast enhancement', min: 1.0, max: 2.5, step: 0.1, default: 1.3 },
+      { type: 'range', key: 'threshold', label: 'B&W threshold', min: 80, max: 200, step: 5, default: 128 },
+    ],
+    optionsHint: 'Upload a photo of a document. The processor enhances contrast and converts to near-B&W for a clean scan look.',
+  },
+
+  // ── ARCHIVE ──────────────────────────────────────────
+  'create-zip': {
+    multiFile: true,
+    processor: async (files) => {
+      const { createZip } = await import('./processors');
+      return createZip(files, 'archive.zip');
+    },
+    optionsHint: 'All selected files will be zipped into a single archive.',
+  },
+
+  'extract-zip': {
+    processor: async (files) => {
+      const { extractZip } = await import('./processors');
+      return extractZip(files[0]);
+    },
+    optionsHint: 'The ZIP will be extracted and all files made available for download.',
   },
 
   // ── DEVELOPER ────────────────────────────────────────

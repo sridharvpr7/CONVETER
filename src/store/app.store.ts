@@ -31,6 +31,10 @@ interface AppState {
   // Notifications
   notificationsOpen: boolean;
   setNotificationsOpen: (open: boolean) => void;
+  notifications: AppNotification[];
+  addNotification: (n: Omit<AppNotification, 'id' | 'time' | 'read'>) => void;
+  markNotificationsAsRead: () => void;
+  clearNotifications: () => void;
 
   // User
   user: User | null;
@@ -40,6 +44,15 @@ interface AppState {
   favoriteTools: string[]; // tool slugs
   toggleFavoriteTool: (slug: string) => void;
   isFavoriteTool: (slug: string) => boolean;
+}
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  desc: string;
+  time: string;
+  read: boolean;
+  type: 'success' | 'info' | 'error' | 'promo';
 }
 
 export interface User {
@@ -97,6 +110,22 @@ export const useAppStore = create<AppState>()(
       // Notifications
       notificationsOpen: false,
       setNotificationsOpen: (open) => set({ notificationsOpen: open }),
+      notifications: [],
+      addNotification: (n) => {
+        const entry: AppNotification = {
+          id: Math.random().toString(36).slice(2),
+          time: 'Just now',
+          read: false,
+          ...n,
+        };
+        set((state) => ({ notifications: [entry, ...state.notifications].slice(0, 50) }));
+      },
+      markNotificationsAsRead: () => {
+        set((state) => ({
+          notifications: state.notifications.map((n) => ({ ...n, read: true })),
+        }));
+      },
+      clearNotifications: () => set({ notifications: [] }),
 
       // User
       user: null,
@@ -121,6 +150,7 @@ export const useAppStore = create<AppState>()(
         theme: state.theme,
         favoriteTools: state.favoriteTools,
         user: state.user,
+        notifications: state.notifications,
       }),
     }
   )

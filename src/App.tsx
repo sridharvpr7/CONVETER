@@ -104,15 +104,15 @@ const PageSkeleton: React.FC = () => (
 // Notification panel (global overlay)
 // ─────────────────────────────────────────────────────────
 const NotificationsPanel: React.FC = () => {
-  const { notificationsOpen, setNotificationsOpen } = useAppStore();
+  const {
+    notificationsOpen,
+    setNotificationsOpen,
+    notifications,
+    markNotificationsAsRead,
+    clearNotifications,
+  } = useAppStore();
 
   if (!notificationsOpen) return null;
-
-  const DEMO_NOTIFS = [
-    { id: '1', title: 'PDF compressed successfully', desc: 'Annual_Report.pdf reduced by 74%', time: '2m ago', read: false, type: 'success' },
-    { id: '2', title: 'Welcome to CONVETER', desc: 'Start with our popular tools or explore all 80+ tools', time: '1h ago', read: false, type: 'info' },
-    { id: '3', title: 'Premium trial available', desc: 'Try all Premium features free for 7 days', time: '1d ago', read: true, type: 'promo' },
-  ];
 
   return (
     <>
@@ -130,46 +130,61 @@ const NotificationsPanel: React.FC = () => {
           style={{ borderColor: 'var(--border)' }}
         >
           <span className="text-sm font-semibold text-primary">Notifications</span>
-          <button className="text-xs text-muted-cv hover:text-accent transition-colors">
-            Mark all read
-          </button>
+          <div className="flex items-center gap-2">
+            {notifications.some((n) => !n.read) && (
+              <button
+                onClick={markNotificationsAsRead}
+                className="text-xs text-muted-cv hover:text-accent transition-colors"
+              >
+                Mark read
+              </button>
+            )}
+            {notifications.length > 0 && (
+              <button
+                onClick={clearNotifications}
+                className="text-xs text-muted-cv hover:text-error-600 transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
-        <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-          {DEMO_NOTIFS.map((n) => (
-            <div
-              key={n.id}
-              className="flex gap-3 px-4 py-3 transition-colors hover:bg-hover-cv cursor-pointer"
-            >
+        {notifications.length === 0 ? (
+          <div className="p-6 text-center text-xs text-muted-cv">
+            No notifications yet
+          </div>
+        ) : (
+          <div className="divide-y max-h-80 overflow-y-auto" style={{ borderColor: 'var(--border)' }}>
+            {notifications.map((n) => (
               <div
-                className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
-                style={{
-                  backgroundColor: n.read
-                    ? 'transparent'
-                    : n.type === 'success'
-                    ? '#22c55e'
-                    : n.type === 'promo'
-                    ? '#f59e0b'
-                    : 'var(--accent)',
-                }}
-              />
-              <div>
-                <p className={`text-xs font-medium ${n.read ? 'text-muted-cv' : 'text-primary'}`}>
-                  {n.title}
-                </p>
-                <p className="text-xs text-muted-cv mt-0.5">{n.desc}</p>
-                <p className="text-2xs text-muted-cv mt-1" style={{ fontSize: '10px' }}>{n.time}</p>
+                key={n.id}
+                className="flex gap-3 px-4 py-3 transition-colors hover:bg-hover-cv"
+              >
+                <div
+                  className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                  style={{
+                    backgroundColor: n.read
+                      ? 'transparent'
+                      : n.type === 'success'
+                      ? '#22c55e'
+                      : n.type === 'error'
+                      ? '#ef4444'
+                      : n.type === 'promo'
+                      ? '#f59e0b'
+                      : 'var(--accent)',
+                  }}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className={`text-xs font-medium ${n.read ? 'text-muted-cv' : 'text-primary'}`}>
+                    {n.title}
+                  </p>
+                  <p className="text-xs text-muted-cv mt-0.5 break-words">{n.desc}</p>
+                  <p className="text-2xs text-muted-cv mt-1" style={{ fontSize: '10px' }}>{n.time}</p>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-        <div
-          className="px-4 py-2.5 border-t text-center"
-          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)' }}
-        >
-          <button className="text-xs text-muted-cv hover:text-primary transition-colors">
-            View all notifications
-          </button>
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );
